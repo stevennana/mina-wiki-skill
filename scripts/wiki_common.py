@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +17,32 @@ CONFIG_ENV_VAR = "STEVEN_WIKI_CONFIG"
 DEFAULT_CONFIG_NAME = ".steven-wiki.json"
 SYNC_METADATA_DIR = ".steven-wiki"
 SYNC_METADATA_NAME = "last_sync.json"
+WIKI_PAGE_DIRS = ("sources", "entities", "concepts", "analyses")
+STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "has",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "was",
+    "with",
+}
 
 
 class ConfigError(RuntimeError):
@@ -119,14 +146,27 @@ def run_git(path: Path, args: list[str]) -> str:
 
 
 def git_snapshot(raw_dir: Path) -> dict[str, Any]:
-    head = run_git(raw_dir, ["rev-parse", "HEAD"])
-    branch = run_git(raw_dir, ["rev-parse", "--abbrev-ref", "HEAD"])
+    try:
+        branch = run_git(raw_dir, ["rev-parse", "--abbrev-ref", "HEAD"])
+    except ConfigError:
+        branch = run_git(raw_dir, ["symbolic-ref", "--short", "HEAD"])
+
+    try:
+        head = run_git(raw_dir, ["rev-parse", "HEAD"])
+        short_head = head[:7]
+        has_commits = True
+    except ConfigError:
+        head = None
+        short_head = "unborn"
+        has_commits = False
+
     status_short = run_git(raw_dir, ["status", "--short"])
     changed_files = [line[3:] for line in status_short.splitlines() if len(line) >= 4]
     return {
         "branch": branch,
         "head": head,
-        "short_head": head[:7],
+        "short_head": short_head,
+        "has_commits": has_commits,
         "dirty": bool(status_short),
         "status_short": status_short.splitlines(),
         "changed_files": changed_files,
@@ -150,6 +190,8 @@ def read_sync_metadata(wiki_dir: Path) -> dict[str, Any] | None:
 def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
     snapshot = git_snapshot(paths.raw_dir)
     metadata = read_sync_metadata(paths.wiki_dir)
+    baseline_commit_recommended = not snapshot["has_commits"]
+    follow_up_actions: list[str] = []
     if metadata is None:
         needs_sync = True
         reasons = ["No sync metadata found in wiki."]
@@ -161,11 +203,22 @@ def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
             reasons.append("Raw repository has uncommitted changes.")
         needs_sync = bool(reasons)
 
+    if baseline_commit_recommended:
+        reasons.append(
+            "Raw repository has no baseline commit yet. After the initial wiki sync is complete, "
+            "create a raw baseline commit so future wiki refreshes can rely on git history."
+        )
+        follow_up_actions.append(
+            "After the wiki reflects the current raw tree, create the first commit in WIKI_RAW_DIR."
+        )
+
     return {
         "raw": snapshot,
         "wiki_sync": metadata,
         "needs_sync": needs_sync,
         "reasons": reasons,
+        "baseline_commit_recommended": baseline_commit_recommended,
+        "follow_up_actions": follow_up_actions,
         "sync_metadata_path": str(sync_metadata_path(paths.wiki_dir)),
     }
 
@@ -230,3 +283,191 @@ def write_sync_metadata(wiki_dir: Path, raw_snapshot: dict[str, Any], operation:
     path = sync_metadata_path(wiki_dir)
     path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
+
+
+def slugify(value: str) -> str:
+    text = value.strip().lower()
+    text = re.sub(r"[^\w\s/-]", "", text)
+    text = text.replace("/", "-")
+    text = re.sub(r"[-\s]+", "-", text)
+    return text.strip("-") or "untitled"
+
+
+def titleize_slug(slug: str) -> str:
+    return slug.replace("-", " ").replace("_", " ").strip().title()
+
+
+def safe_relative_to(path: Path, root: Path) -> Path:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    try:
+        return resolved_path.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ConfigError(f"Path {resolved_path} is outside root {resolved_root}") from exc
+
+
+def resolve_raw_input(raw_dir: Path, raw_input: str) -> Path:
+    candidate = Path(raw_input)
+    if not candidate.is_absolute():
+        candidate = raw_dir / candidate
+    candidate = candidate.expanduser().resolve()
+    safe_relative_to(candidate, raw_dir)
+    return candidate
+
+
+def is_probably_text_file(path: Path) -> bool:
+    return path.suffix.lower() in {
+        ".md",
+        ".markdown",
+        ".txt",
+        ".text",
+        ".rst",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".csv",
+        ".log",
+        ".xml",
+        ".html",
+        ".htm",
+    }
+
+
+def read_raw_text(path: Path) -> tuple[str, bool]:
+    if is_probably_text_file(path):
+        try:
+            return path.read_text(encoding="utf-8"), True
+        except UnicodeDecodeError:
+            pass
+    return f"Binary or unsupported raw source: {path.name}", False
+
+
+def source_page_slug(raw_relative: Path) -> str:
+    return slugify(str(raw_relative.with_suffix("")))
+
+
+def source_page_path(wiki_dir: Path, raw_relative: Path) -> Path:
+    return wiki_dir / "sources" / f"{source_page_slug(raw_relative)}.md"
+
+
+def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}, text
+    frontmatter_text = text[4:end]
+    body = text[end + 5 :]
+    metadata: dict[str, Any] = {}
+    current_list_key: str | None = None
+    for raw_line in frontmatter_text.splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            continue
+        if line.startswith("  - ") and current_list_key:
+            metadata.setdefault(current_list_key, []).append(line[4:].strip())
+            continue
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip()
+        if value == "":
+            metadata[key] = []
+            current_list_key = key
+        else:
+            metadata[key] = value.strip("'\"")
+            current_list_key = None
+    return metadata, body.lstrip("\n")
+
+
+def dump_frontmatter(metadata: dict[str, Any]) -> str:
+    lines = ["---"]
+    for key, value in metadata.items():
+        if isinstance(value, list):
+            lines.append(f"{key}:")
+            for item in value:
+                lines.append(f"  - {item}")
+        else:
+            lines.append(f"{key}: {value}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def read_wiki_page(path: Path) -> tuple[dict[str, Any], str]:
+    text = path.read_text(encoding="utf-8")
+    return parse_frontmatter(text)
+
+
+def write_wiki_page(path: Path, metadata: dict[str, Any], body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = dump_frontmatter(metadata) + "\n\n" + body.strip() + "\n"
+    path.write_text(content, encoding="utf-8")
+
+
+def iter_wiki_pages(wiki_dir: Path) -> list[Path]:
+    pages: list[Path] = []
+    for directory in WIKI_PAGE_DIRS:
+        root = wiki_dir / directory
+        if root.exists():
+            pages.extend(sorted(root.rglob("*.md")))
+    return pages
+
+
+def wiki_page_ref(path: Path, wiki_dir: Path) -> str:
+    relative = safe_relative_to(path, wiki_dir)
+    return str(relative.with_suffix("")).replace("\\", "/")
+
+
+def extract_wiki_links(text: str) -> list[str]:
+    return re.findall(r"\[\[([^\]]+)\]\]", text)
+
+
+def extract_summary(body: str) -> str:
+    match = re.search(r"## Summary\s+(.*?)(?:\n## |\Z)", body, re.S)
+    if match:
+        lines = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+        if lines:
+            return lines[0]
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped
+    return ""
+
+
+def tokenize(text: str) -> list[str]:
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text.lower())
+    return [token for token in tokens if token not in STOPWORDS]
+
+
+def extract_keywords(text: str, limit: int = 5) -> list[str]:
+    counts: dict[str, int] = {}
+    for token in tokenize(text):
+        counts[token] = counts.get(token, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [token for token, _count in ordered[:limit]]
+
+
+def extract_entity_terms(text: str, limit: int = 3) -> list[str]:
+    pattern = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z0-9]+){0,2})\b", text)
+    seen: list[str] = []
+    for term in pattern:
+        cleaned = term.strip()
+        if cleaned.lower() in STOPWORDS:
+            continue
+        if cleaned not in seen:
+            seen.append(cleaned)
+        if len(seen) >= limit:
+            break
+    return seen
+
+
+def choose_related_terms(title: str, content: str) -> dict[str, list[str]]:
+    keywords = [term for term in extract_keywords(f"{title}\n{content}", limit=4) if term not in {"summary", "source"}]
+    entities = extract_entity_terms(content or title, limit=3)
+    return {"concepts": keywords, "entities": entities}
+
+
+def now_iso_date() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")

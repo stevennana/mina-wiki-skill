@@ -2,6 +2,8 @@
 
 `steven-wiki-skill` is a Codex-style skill for maintaining a shared markdown wiki from a raw source directory and ongoing LLM session work.
 
+This project is inspired by Andrej Karpathy's [LLM Wiki](https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw/ac46de1ad27f92b28ac95459c782c07f6b8c964a/llm-wiki.md) concept: a persistent, LLM-maintained wiki that sits between raw source material and query-time answers.
+
 It follows the "LLM Wiki" pattern:
 - raw files are the source of truth
 - the wiki is the maintained, interlinked knowledge layer
@@ -15,6 +17,11 @@ The skill works with two external directories:
 - `WIKI_DIR`: shared wiki pages, updated by adopted LLM CLI sessions
 
 The raw directory must be its own git repository. The skill uses git state to detect whether the wiki is behind the latest raw changes.
+
+If the raw repo has not been committed yet, the workflow treats that as an initial bootstrap phase:
+- ingest the current raw tree into the wiki first
+- once the wiki is implemented enough to reflect that initial tree, create the first commit in `WIKI_RAW_DIR`
+- use that baseline commit plus sync metadata for future change detection
 
 When an adopted LLM CLI session starts, it can:
 1. check whether raw has changed
@@ -31,6 +38,53 @@ This keeps the wiki current while still leaving the user in control of when upda
 - `references/slash-commands.md`: portable slash-command prompt contracts
 - `scripts/`: deterministic helper scripts
 - `tests/`: unit tests for helper behavior
+
+## Install
+
+### Codex CLI
+
+Install this repository as a local Codex skill by copying or linking it into your Codex skills directory as `steven-wiki-skill`.
+
+Typical local install:
+
+```bash
+mkdir -p ~/.codex/skills
+ln -s /absolute/path/to/steven-wiki-skill ~/.codex/skills/steven-wiki-skill
+```
+
+If you prefer a plain copy instead of a symlink:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R /absolute/path/to/steven-wiki-skill ~/.codex/skills/steven-wiki-skill
+```
+
+After installation, restart Codex so it reloads available skills.
+
+You can then invoke it explicitly in Codex with prompts such as:
+
+```text
+Use $steven-wiki-skill to check whether my wiki is behind raw and guide me through sync.
+```
+
+### Claude Code
+
+Claude Code does not use this exact Codex skill packaging format directly, so the practical installation path is:
+
+1. clone or keep this repository locally
+2. point Claude Code sessions at the same `WIKI_RAW_DIR` and `WIKI_DIR`
+3. copy the workflow rules from `SKILL.md` into your project-level `CLAUDE.md`
+4. optionally generate the slash-command prompt files with `python3 scripts/generate_slash_commands.py`
+
+Recommended Claude project setup:
+
+```text
+- keep this repo available locally as the source of truth
+- mirror the operational rules into CLAUDE.md
+- reuse generated files from generated/slash-commands/claude/
+```
+
+This keeps Codex and Claude aligned on the same wiki workflow even though their packaging conventions differ.
 
 ## Configuration
 
@@ -102,6 +156,8 @@ Check whether the wiki is behind raw:
 python3 scripts/wiki_sync_status.py
 ```
 
+If this reports `baseline_commit_recommended: true`, finish the initial wiki sync first, then create the first commit in `WIKI_RAW_DIR` so later syncs can rely on git history instead of only a dirty working tree.
+
 Create the minimal wiki structure:
 
 ```bash
@@ -121,6 +177,36 @@ Generate reusable slash-command prompt files for Codex CLI and Claude Code:
 
 ```bash
 python3 scripts/generate_slash_commands.py
+```
+
+Ingest a raw file into the wiki:
+
+```bash
+python3 scripts/wiki_ingest.py tickets/commands.md --update-sync-marker
+```
+
+Rebuild the wiki index:
+
+```bash
+python3 scripts/wiki_index.py
+```
+
+Run a wiki-grounded query and save the result:
+
+```bash
+python3 scripts/wiki_query.py "What does this wiki say about event mesh?" --save-to event-mesh-answer
+```
+
+Lint the wiki for stale or weak structure:
+
+```bash
+python3 scripts/wiki_lint.py
+```
+
+Check session-start sync state:
+
+```bash
+python3 scripts/wiki_session_start.py
 ```
 
 Run tests:

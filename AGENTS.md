@@ -24,6 +24,13 @@ Environment variables are uppercase and fixed:
 - `WIKI_DIR`
 - optional `STEVEN_WIKI_CONFIG`
 
+## Local Default Paths
+Use these defaults for local development and manual test runs in this repository unless the user provides different paths:
+- `WIKI_RAW_DIR=/Users/stevenna/wiki/raw`
+- `WIKI_DIR=/Users/stevenna/wiki/llm-wiki`
+
+When verifying helper scripts manually, prefer exporting these values for the command being tested.
+
 ## Testing Guidelines
 Write tests under `tests/` using `unittest`. Name files `test_*.py`. Cover config resolution, git detection, sync-state calculations, and failure cases for missing or invalid directories. Use temporary directories and short-lived git repos in tests instead of fixture state.
 

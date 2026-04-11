@@ -78,6 +78,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         status = wiki_common.compute_sync_status(wiki_common.resolve_paths())
         self.assertTrue(status["needs_sync"])
         self.assertIn("No sync metadata found in wiki.", status["reasons"])
+        self.assertFalse(status["baseline_commit_recommended"])
 
     def test_sync_clears_after_marker_written(self) -> None:
         paths = wiki_common.resolve_paths()
@@ -152,6 +153,46 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertFalse(payload["git"]["dirty"])
         self.assertEqual(payload["git"]["changed_files"], [])
 
+    def test_git_snapshot_handles_unborn_head(self) -> None:
+        fresh_root = self.root / "fresh"
+        fresh_root.mkdir()
+        git(fresh_root, "init")
+        git(fresh_root, "config", "user.name", "Test User")
+        git(fresh_root, "config", "user.email", "test@example.com")
+        (fresh_root / "draft.md").write_text("draft\n", encoding="utf-8")
+        expected_branch = git(fresh_root, "symbolic-ref", "--short", "HEAD")
+
+        snapshot = wiki_common.git_snapshot(fresh_root)
+
+        self.assertEqual(snapshot["branch"], expected_branch)
+        self.assertIsNone(snapshot["head"])
+        self.assertEqual(snapshot["short_head"], "unborn")
+        self.assertFalse(snapshot["has_commits"])
+        self.assertTrue(snapshot["dirty"])
+        self.assertEqual(snapshot["changed_files"], ["draft.md"])
+
+    def test_compute_sync_status_recommends_baseline_commit_for_unborn_repo(self) -> None:
+        fresh_root = self.root / "fresh-sync"
+        fresh_root.mkdir()
+        git(fresh_root, "init")
+        git(fresh_root, "config", "user.name", "Test User")
+        git(fresh_root, "config", "user.email", "test@example.com")
+        (fresh_root / "draft.md").write_text("draft\n", encoding="utf-8")
+
+        paths = wiki_common.ResolvedPaths(
+            raw_dir=fresh_root.resolve(),
+            wiki_dir=self.wiki_dir.resolve(),
+            config_path=None,
+            source="test",
+        )
+
+        status = wiki_common.compute_sync_status(paths)
+
+        self.assertTrue(status["needs_sync"])
+        self.assertTrue(status["baseline_commit_recommended"])
+        self.assertTrue(status["follow_up_actions"])
+        self.assertIn("no baseline commit yet", " ".join(status["reasons"]).lower())
+
     def test_bootstrap_wiki_script_creates_expected_structure(self) -> None:
         self.wiki_dir.rmdir()
         completed = subprocess.run(
@@ -195,6 +236,165 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertEqual(len(manifest["targets"]["claude"]), len(COMMANDS))
         self.assertTrue((output_dir / "codex" / "wiki-sync.md").exists())
         self.assertTrue((output_dir / "claude" / "wiki-delete-page.md").exists())
+
+    def test_wiki_ingest_creates_source_and_related_pages(self) -> None:
+        raw_file = self.raw_dir / "topic.md"
+        raw_file.write_text(
+            "# Event Mesh\n\nSolace Event Mesh improves messaging architecture for Korea team.\n",
+            encoding="utf-8",
+        )
+        git(self.raw_dir, "add", "topic.md")
+        git(self.raw_dir, "commit", "-m", "add topic")
+        completed = subprocess.run(
+            [
+                "python3",
+                str(REPO_ROOT / "scripts" / "wiki_ingest.py"),
+                "topic.md",
+                "--update-sync-marker",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        source_page = self.wiki_dir / "sources" / "topic.md"
+        self.assertTrue(source_page.exists())
+        self.assertTrue((self.wiki_dir / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "log.md").exists())
+        related_pages = list((self.wiki_dir / "concepts").glob("*.md")) + list((self.wiki_dir / "entities").glob("*.md"))
+        self.assertTrue(related_pages)
+
+    def test_wiki_ingest_updates_existing_source_page(self) -> None:
+        raw_file = self.raw_dir / "topic.md"
+        raw_file.write_text("Initial content about Solace event mesh.\n", encoding="utf-8")
+        git(self.raw_dir, "add", "topic.md")
+        git(self.raw_dir, "commit", "-m", "add source")
+        subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_ingest.py"), "topic.md"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        raw_file.write_text("Updated content about Solace event mesh and resilience.\n", encoding="utf-8")
+        git(self.raw_dir, "add", "topic.md")
+        git(self.raw_dir, "commit", "-m", "update source")
+        subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_ingest.py"), "topic.md"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        source_page = self.wiki_dir / "sources" / "topic.md"
+        metadata, body = wiki_common.read_wiki_page(source_page)
+        self.assertEqual(metadata["type"], "source")
+        self.assertIn("Updated content", body)
+
+    def test_wiki_query_returns_citations_and_can_save_analysis(self) -> None:
+        raw_file = self.raw_dir / "topic.md"
+        raw_file.write_text("Event mesh supports distributed messaging for Solace systems.\n", encoding="utf-8")
+        git(self.raw_dir, "add", "topic.md")
+        git(self.raw_dir, "commit", "-m", "add source")
+        subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_ingest.py"), "topic.md"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        completed = subprocess.run(
+            [
+                "python3",
+                str(REPO_ROOT / "scripts" / "wiki_query.py"),
+                "What does event mesh support?",
+                "--save-to",
+                "mesh-answer",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["citations"])
+        self.assertTrue((self.wiki_dir / "analyses" / "mesh-answer.md").exists())
+
+    def test_wiki_lint_reports_orphan_pages_and_sync_attention(self) -> None:
+        wiki_common.ensure_wiki_structure(self.wiki_dir)
+        orphan = self.wiki_dir / "concepts" / "orphan.md"
+        wiki_common.write_wiki_page(
+            orphan,
+            {"type": "concept", "title": "Orphan", "last_reviewed": "2026-04-11"},
+            "## Summary\n\nStandalone concept page.\n",
+        )
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_lint.py")],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertIn("concepts/orphan", payload["orphan_pages"])
+        self.assertTrue(payload["sync_needs_attention"])
+
+    def test_wiki_session_start_reports_prompt_needed_after_raw_change(self) -> None:
+        wiki_common.ensure_wiki_structure(self.wiki_dir)
+        snapshot = wiki_common.git_snapshot(self.raw_dir)
+        wiki_common.write_sync_metadata(self.wiki_dir, snapshot, "ingest")
+        (self.raw_dir / "new-note.md").write_text("new information\n", encoding="utf-8")
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_session_start.py")],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["needs_sync"])
+        self.assertTrue(payload["should_prompt_user"])
+
+    def test_wiki_session_start_reports_baseline_commit_follow_up_for_unborn_repo(self) -> None:
+        fresh_root = self.root / "fresh-session"
+        fresh_root.mkdir()
+        git(fresh_root, "init")
+        git(fresh_root, "config", "user.name", "Test User")
+        git(fresh_root, "config", "user.email", "test@example.com")
+        (fresh_root / "draft.md").write_text("draft\n", encoding="utf-8")
+        env = os.environ.copy()
+        env["WIKI_RAW_DIR"] = str(fresh_root)
+
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_session_start.py")],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["baseline_commit_recommended"])
+        self.assertFalse(payload["raw_has_commits"])
+        self.assertTrue(payload["follow_up_actions"])
 
 
 if __name__ == "__main__":

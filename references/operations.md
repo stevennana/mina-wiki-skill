@@ -7,6 +7,7 @@ Run `python3 scripts/wiki_sync_status.py` first.
 - If `needs_sync` is `false`, continue normally.
 - If `needs_sync` is `true`, tell the user raw has changed and ask whether to sync the wiki now.
 - If accepted, inspect the changed raw files, update affected wiki pages, refresh `index.md`, append to `log.md`, and update the sync marker.
+- If `baseline_commit_recommended` is `true`, treat the run as an initial bootstrap. Finish the first useful wiki sync, then create the first commit in `WIKI_RAW_DIR` so future sync checks can compare git state cleanly.
 
 ## Ingest
 

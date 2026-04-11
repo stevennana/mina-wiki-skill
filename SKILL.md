@@ -42,6 +42,11 @@ python3 scripts/wiki_sync_status.py
 
 `WIKI_RAW_DIR` must be a git repo. `WIKI_DIR` must be writable by the current session.
 
+If `WIKI_RAW_DIR` is a git repo with no commits yet, treat that as an initial bootstrap state instead of a hard failure:
+- build the wiki from the current raw tree first
+- once the wiki reflects the current raw tree well enough, create the first commit in `WIKI_RAW_DIR`
+- after that baseline commit exists, use git state and sync metadata to detect later raw changes precisely
+
 ## Session-Start Workflow
 
 At the start of an adopted CLI session:
@@ -49,6 +54,8 @@ At the start of an adopted CLI session:
 2. If `needs_sync` is `true`, tell the user raw has changed and ask whether to update the wiki now.
 3. If accepted, inspect the changed raw files, update affected wiki pages, refresh `index.md`, append `log.md`, then record the new sync marker.
 4. If declined, continue but state that the wiki may lag raw.
+
+When `baseline_commit_recommended` is `true`, include the follow-up guidance that the raw repo should get its first commit after the initial wiki sync is complete.
 
 The helper script reports freshness. The user approval step stays in the conversation layer.
 
