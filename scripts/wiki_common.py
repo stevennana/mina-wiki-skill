@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+from html import unescape
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,45 @@ STOPWORDS = {
     "to",
     "was",
     "with",
+}
+BOILERPLATE_LINES = {
+    "---",
+    "skip to main content",
+    "account",
+    "all files",
+    "settings",
+    "logout",
+    "filter:",
+    "submit search",
+    "provide feedback",
+    "products",
+    "company",
+    "developers",
+    "support",
+    "contact us",
+}
+NOISY_TOKENS = {
+    "all",
+    "can",
+    "com",
+    "content",
+    "default",
+    "div",
+    "docs",
+    "for",
+    "help",
+    "html",
+    "htm",
+    "images",
+    "last",
+    "not",
+    "see",
+    "should",
+    "shows",
+    "using",
+    "yes",
+    "you",
+    "your",
 }
 
 
@@ -438,7 +478,7 @@ def extract_summary(body: str) -> str:
 
 def tokenize(text: str) -> list[str]:
     tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text.lower())
-    return [token for token in tokens if token not in STOPWORDS]
+    return [token for token in tokens if token not in STOPWORDS and token not in NOISY_TOKENS]
 
 
 def extract_keywords(text: str, limit: int = 5) -> list[str]:
@@ -450,11 +490,13 @@ def extract_keywords(text: str, limit: int = 5) -> list[str]:
 
 
 def extract_entity_terms(text: str, limit: int = 3) -> list[str]:
-    pattern = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z0-9]+){0,2})\b", text)
+    pattern = re.findall(r"\b([A-Z][a-z]+(?: [A-Z][a-z0-9]+){0,2})\b", text)
     seen: list[str] = []
     for term in pattern:
         cleaned = term.strip()
         if cleaned.lower() in STOPWORDS:
+            continue
+        if cleaned.lower() in BOILERPLATE_LINES:
             continue
         if cleaned not in seen:
             seen.append(cleaned)
@@ -471,3 +513,61 @@ def choose_related_terms(title: str, content: str) -> dict[str, list[str]]:
 
 def now_iso_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def normalize_raw_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n")
+    normalized = re.sub(r"<script\b.*?</script>", " ", normalized, flags=re.S | re.I)
+    normalized = re.sub(r"<style\b.*?</style>", " ", normalized, flags=re.S | re.I)
+    normalized = re.sub(r"<!--.*?-->", " ", normalized, flags=re.S)
+    normalized = re.sub(r"<[^>]+>", " ", normalized)
+    normalized = unescape(normalized)
+    cleaned_lines: list[str] = []
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^[-*]\s+", "", line)
+        line = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", line)
+        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        lower_line = line.lower()
+        if not line:
+            continue
+        if lower_line in BOILERPLATE_LINES:
+            continue
+        if lower_line.startswith("documentation coverage"):
+            continue
+        if lower_line.startswith("last updated:"):
+            continue
+        if lower_line.startswith("copyright"):
+            continue
+        if lower_line.startswith("©"):
+            continue
+        if lower_line == "placeholder":
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
+
+
+def extract_title_and_summary(raw_path: Path, text: str) -> tuple[str, str]:
+    cleaned = normalize_raw_text(text)
+    raw_lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    heading = next((line[2:].strip() for line in raw_lines if line.startswith("# ")), "")
+    title = heading or raw_path.stem.replace("_", " ").replace("-", " ").strip() or raw_path.name
+
+    summary = ""
+    for line in raw_lines:
+        if line.startswith("# "):
+            continue
+        if line.lower() == title.lower():
+            continue
+        if len(line) < 20:
+            continue
+        if re.fullmatch(r"[|:\- ]+", line):
+            continue
+        summary = line
+        break
+    if not summary:
+        summary = f"Raw source {raw_path.name}"
+    return title, summary[:240]

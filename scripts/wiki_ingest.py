@@ -14,8 +14,10 @@ from wiki_common import (
     append_log_entry,
     choose_related_terms,
     ensure_wiki_structure,
+    extract_title_and_summary,
     git_snapshot,
     now_iso_date,
+    normalize_raw_text,
     read_raw_text,
     read_wiki_page,
     resolve_paths,
@@ -82,11 +84,12 @@ def ingest_one(paths, raw_input: str) -> list[str]:
     source_path = source_page_path(paths.wiki_dir, raw_relative)
     source_ref = wiki_page_ref(source_path, paths.wiki_dir)
 
-    title = raw_path.stem.replace("_", " ").replace("-", " ").strip() or raw_path.name
-    related = choose_related_terms(title, raw_text)
-
-    summary = raw_text.strip().splitlines()[0] if raw_text.strip() else f"Raw source {raw_path.name}"
-    summary = summary[:240]
+    normalized_text = normalize_raw_text(raw_text) if is_text else raw_text
+    title, summary = extract_title_and_summary(raw_path, raw_text) if is_text else (
+        raw_path.stem.replace("_", " ").replace("-", " ").strip() or raw_path.name,
+        f"Raw source {raw_path.name}",
+    )
+    related = choose_related_terms(title, normalized_text)
     body_lines = [
         "## Summary",
         "",
@@ -102,7 +105,7 @@ def ingest_one(paths, raw_input: str) -> list[str]:
         "",
     ]
     if is_text:
-        for line in [line.strip() for line in raw_text.splitlines() if line.strip()][:5]:
+        for line in [line.strip() for line in normalized_text.splitlines() if line.strip() and not line.startswith("# ")][:5]:
             body_lines.append(f"- {line[:220]}")
     else:
         body_lines.append(f"- Binary or unsupported raw source: `{raw_path.name}`")

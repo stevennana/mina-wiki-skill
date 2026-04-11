@@ -35,7 +35,8 @@ COMMANDS: tuple[SlashCommand, ...] = (
         behavior=(
             "Run sync-status first.",
             "If raw has changed, ask the user for approval before editing wiki pages.",
-            "After approval, update affected pages, `index.md`, `log.md`, and sync metadata.",
+            "After approval, run `python3 scripts/wiki_sync.py --update-sync-marker` for full-directory sync or sync the requested raw path.",
+            "Update affected pages, `index.md`, `log.md`, and sync metadata.",
         ),
         examples=("/wiki-sync", "/wiki-sync sources/article-a.md"),
         safety_notes=("Never edit files in `WIKI_RAW_DIR`.",),

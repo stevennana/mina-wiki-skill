@@ -164,6 +164,20 @@ Create the minimal wiki structure:
 python3 scripts/bootstrap_wiki.py
 ```
 
+Sync the wiki from the full raw directory:
+
+```bash
+python3 scripts/wiki_sync.py --update-sync-marker
+```
+
+Use this for the initial wiki bootstrap and for later raw update/delete/add passes.
+
+If you need to rebuild the generated wiki pages from scratch while preserving local vault settings such as `.obsidian/`, use:
+
+```bash
+python3 scripts/wiki_sync.py --reset-generated --update-sync-marker
+```
+
 Append a log entry and update the sync marker:
 
 ```bash

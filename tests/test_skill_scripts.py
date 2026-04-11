@@ -193,6 +193,24 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertTrue(status["follow_up_actions"])
         self.assertIn("no baseline commit yet", " ".join(status["reasons"]).lower())
 
+    def test_extract_title_and_summary_filters_boilerplate(self) -> None:
+        raw_text = (
+            "Skip To Main Content\n\n"
+            "Account\n\n"
+            "Settings\n\n"
+            "# Solace Cloud Console\n\n"
+            "The Solace Cloud Console is the single-pane-of-glass UI for managing services.\n\n"
+            "Provide feedback\n"
+        )
+
+        title, summary = wiki_common.extract_title_and_summary(Path("cloud-console.md"), raw_text)
+
+        self.assertEqual(title, "Solace Cloud Console")
+        self.assertEqual(
+            summary,
+            "The Solace Cloud Console is the single-pane-of-glass UI for managing services.",
+        )
+
     def test_bootstrap_wiki_script_creates_expected_structure(self) -> None:
         self.wiki_dir.rmdir()
         completed = subprocess.run(
@@ -296,6 +314,85 @@ class StevenWikiSkillTests(unittest.TestCase):
         metadata, body = wiki_common.read_wiki_page(source_page)
         self.assertEqual(metadata["type"], "source")
         self.assertIn("Updated content", body)
+
+    def test_wiki_sync_bootstraps_from_unborn_raw_directory(self) -> None:
+        raw_file = self.raw_dir / "docs" / "overview.md"
+        raw_file.parent.mkdir(parents=True)
+        raw_file.write_text("Overview of Solace broker operations.\n", encoding="utf-8")
+        second_file = self.raw_dir / "docs" / "setup.md"
+        second_file.write_text("Setup notes for event broker deployment.\n", encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                "python3",
+                str(REPO_ROOT / "scripts" / "wiki_sync.py"),
+                "--update-sync-marker",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["synced_raw_files"], 3)
+        self.assertTrue((self.wiki_dir / "sources" / "docs-overview.md").exists())
+        self.assertTrue((self.wiki_dir / "sources" / "docs-setup.md").exists())
+        self.assertTrue((self.wiki_dir / ".steven-wiki" / "last_sync.json").exists())
+
+    def test_wiki_sync_handles_update_delete_and_add(self) -> None:
+        keep_file = self.raw_dir / "keep.md"
+        remove_file = self.raw_dir / "remove.md"
+        keep_file.write_text("Keep original content.\n", encoding="utf-8")
+        remove_file.write_text("Remove this page later.\n", encoding="utf-8")
+        git(self.raw_dir, "add", "keep.md", "remove.md")
+        git(self.raw_dir, "commit", "-m", "seed raw")
+
+        subprocess.run(
+            [
+                "python3",
+                str(REPO_ROOT / "scripts" / "wiki_sync.py"),
+                "--update-sync-marker",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        keep_file.write_text("Keep updated content with resilience guidance.\n", encoding="utf-8")
+        remove_file.unlink()
+        new_file = self.raw_dir / "new.md"
+        new_file.write_text("Brand new content for added source.\n", encoding="utf-8")
+        git(self.raw_dir, "add", "-A")
+        git(self.raw_dir, "commit", "-m", "mutate raw")
+
+        completed = subprocess.run(
+            [
+                "python3",
+                str(REPO_ROOT / "scripts" / "wiki_sync.py"),
+                "--update-sync-marker",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0, msg=completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue((self.wiki_dir / "sources" / "keep.md").exists())
+        self.assertFalse((self.wiki_dir / "sources" / "remove.md").exists())
+        self.assertTrue((self.wiki_dir / "sources" / "new.md").exists())
+        _metadata, body = wiki_common.read_wiki_page(self.wiki_dir / "sources" / "keep.md")
+        self.assertIn("Keep updated content", body)
+        self.assertIn("sources/remove.md", payload["deleted_wiki_pages"])
 
     def test_wiki_query_returns_citations_and_can_save_analysis(self) -> None:
         raw_file = self.raw_dir / "topic.md"

@@ -24,8 +24,17 @@ Use:
 
 ```bash
 python3 scripts/raw_git_status.py
+python3 scripts/wiki_sync.py --update-sync-marker
 python3 scripts/log_operation.py --operation ingest --update-sync-marker --touched sources/foo.md entities/bar.md
 ```
+
+`python3 scripts/wiki_sync.py --update-sync-marker` is the preferred full-directory operation for:
+- initial wiki bootstrap from the current raw tree
+- updates to existing raw files
+- new raw files
+- raw-file deletions that should remove their corresponding `sources/` pages
+
+When a prior generated pass needs to be replaced cleanly, run `python3 scripts/wiki_sync.py --reset-generated --update-sync-marker` to rebuild `sources/`, `entities/`, `concepts/`, `analyses/`, `index.md`, `log.md`, and sync metadata while leaving unrelated files like `.obsidian/` intact.
 
 ## Query
 
