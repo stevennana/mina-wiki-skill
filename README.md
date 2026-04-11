@@ -9,6 +9,8 @@ It follows the "LLM Wiki" pattern:
 - the wiki is the maintained, interlinked knowledge layer
 - the skill gives the LLM a repeatable workflow for ingest, query, sync, and lint
 
+The scripts in this repo are support tools. They can bootstrap drafts, track sync state, and maintain bookkeeping, but the CLI LLM is still expected to do the real wiki work: synthesize information, revise generated pages, strengthen links, and lint low-quality knowledge.
+
 ## Core idea
 
 The skill works with two external directories:
@@ -38,6 +40,12 @@ This keeps the wiki current while still leaving the user in control of when upda
 - `references/slash-commands.md`: portable slash-command prompt contracts
 - `scripts/`: deterministic helper scripts
 - `tests/`: unit tests for helper behavior
+
+The intended operating model is:
+- scripts help the LLM start faster
+- the LLM reads the generated output critically
+- the LLM rewrites or restructures weak pages
+- the wiki quality comes from iterative maintenance, not from one-shot generation
 
 ## Install
 

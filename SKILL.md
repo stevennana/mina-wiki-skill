@@ -5,6 +5,8 @@ description: Maintain a shared markdown wiki from raw source directories and ses
 
 This skill turns an adopted LLM CLI session into a disciplined wiki maintainer following the LLM Wiki pattern.
 
+Scripts in this repository are helpers, not the maintainer. They can scaffold pages, detect sync state, and keep bookkeeping metadata, but the LLM using this skill is responsible for building the actual knowledge base by reading sources, revising pages, strengthening cross-links, and linting weak or stale content.
+
 ## When To Use
 
 Use this skill when:
@@ -65,9 +67,11 @@ The helper script reports freshness. The user approval step stays in the convers
 ### Ingest
 
 - Read one or a few raw files at a time.
+- Treat any script-generated page content as a first draft.
 - Distill them into wiki knowledge, not raw-file mirrors.
 - Create or update a source page under `sources/` that stands on its own as a useful summary.
 - Update linked entity/concept/analysis pages as needed.
+- Revise the touched pages after generation so they read like maintained knowledge, not scaffolding output.
 - Refresh `index.md`.
 - Append a chronological entry to `log.md`.
 - After a successful raw-driven sync, update the sync marker:
@@ -88,6 +92,7 @@ python3 scripts/log_operation.py --operation ingest --update-sync-marker --touch
 - Look for stale claims versus newer raw changes.
 - Find orphan pages, missing cross-links, weak summaries, and contradiction candidates.
 - Suggest which raw sources or wiki pages need review.
+- Rewrite weak generated pages when they do not meet the wiki's quality bar.
 
 ## Wiki Conventions
 
