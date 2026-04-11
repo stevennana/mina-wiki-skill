@@ -5,7 +5,7 @@
 This project is inspired by Andrej Karpathy's [LLM Wiki](https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw/ac46de1ad27f92b28ac95459c782c07f6b8c964a/llm-wiki.md) concept: a persistent, LLM-maintained wiki that sits between raw source material and query-time answers.
 
 It follows the "LLM Wiki" pattern:
-- raw files are the source of truth
+- raw files are optional input material for ingestion
 - the wiki is the maintained, interlinked knowledge layer
 - the skill gives the LLM a repeatable workflow for ingest, query, sync, and lint
 
@@ -16,7 +16,7 @@ The skill works with two external directories:
 - `WIKI_RAW_DIR`: raw source files, treated as read-only by the skill
 - `WIKI_DIR`: shared wiki pages, updated by adopted LLM CLI sessions
 
-The raw directory must be its own git repository. The skill uses git state to detect whether the wiki is behind the latest raw changes.
+The wiki is the primary artifact. The LLM should write pages that stand on their own, integrating knowledge from raw material instead of mirroring file paths or dumping raw excerpts. The raw directory is read-only input and optional after ingestion. The skill uses git state to detect whether the wiki is behind the latest raw changes when `WIKI_RAW_DIR` is present.
 
 If the raw repo has not been committed yet, the workflow treats that as an initial bootstrap phase:
 - ingest the current raw tree into the wiki first

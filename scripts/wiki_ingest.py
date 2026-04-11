@@ -14,10 +14,10 @@ from wiki_common import (
     append_log_entry,
     choose_related_terms,
     ensure_wiki_structure,
+    extract_key_points,
     extract_title_and_summary,
     git_snapshot,
     now_iso_date,
-    normalize_raw_text,
     read_raw_text,
     read_wiki_page,
     resolve_paths,
@@ -27,6 +27,8 @@ from wiki_common import (
     titleize_slug,
     validate_paths,
     wiki_page_ref,
+    read_source_map,
+    write_source_map,
     write_sync_metadata,
     write_wiki_page,
 )
@@ -84,28 +86,22 @@ def ingest_one(paths, raw_input: str) -> list[str]:
     source_path = source_page_path(paths.wiki_dir, raw_relative)
     source_ref = wiki_page_ref(source_path, paths.wiki_dir)
 
-    normalized_text = normalize_raw_text(raw_text) if is_text else raw_text
     title, summary = extract_title_and_summary(raw_path, raw_text) if is_text else (
         raw_path.stem.replace("_", " ").replace("-", " ").strip() or raw_path.name,
         f"Raw source {raw_path.name}",
     )
-    related = choose_related_terms(title, normalized_text)
+    related = choose_related_terms(title, raw_text, raw_relative)
+    key_points = extract_key_points(raw_text, title, limit=5) if is_text else []
     body_lines = [
         "## Summary",
         "",
         summary,
         "",
-        "## Source",
-        "",
-        f"- raw_path: `{raw_relative}`",
-        f"- raw_commit: `{raw_snapshot['short_head']}`",
-        f"- text_extractable: `{str(is_text).lower()}`",
-        "",
         "## Key Points",
         "",
     ]
-    if is_text:
-        for line in [line.strip() for line in normalized_text.splitlines() if line.strip() and not line.startswith("# ")][:5]:
+    if key_points:
+        for line in key_points:
             body_lines.append(f"- {line[:220]}")
     else:
         body_lines.append(f"- Binary or unsupported raw source: `{raw_path.name}`")
@@ -137,12 +133,12 @@ def ingest_one(paths, raw_input: str) -> list[str]:
         "type": "source",
         "title": title,
         "summary": summary,
-        "raw_path": str(raw_relative),
         "last_reviewed": now_iso_date(),
-        "raw_commit": raw_snapshot["short_head"],
-        "sources": [str(raw_relative)],
     }
     write_wiki_page(source_path, metadata, "\n".join(body_lines))
+    source_mapping = read_source_map(paths.wiki_dir)
+    source_mapping[str(raw_relative)] = wiki_page_ref(source_path, paths.wiki_dir)
+    write_source_map(paths.wiki_dir, source_mapping)
     return touched
 
 

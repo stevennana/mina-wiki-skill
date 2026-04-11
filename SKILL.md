@@ -8,13 +8,14 @@ This skill turns an adopted LLM CLI session into a disciplined wiki maintainer f
 ## When To Use
 
 Use this skill when:
-- a project/session has access to `WIKI_RAW_DIR` and `WIKI_DIR`
+- a project/session has access to `WIKI_DIR`, optionally with `WIKI_RAW_DIR`
+- the user wants the LLM to build or maintain a persistent wiki
 - the user wants to ingest or re-sync raw sources into the shared wiki
 - the user wants answers grounded in the maintained wiki instead of re-deriving from raw files
 - the user wants to file analysis back into the wiki
 - the user wants to check whether the wiki is behind the raw git repo
 
-Do not modify files in `WIKI_RAW_DIR`. Raw is read-only source-of-truth input.
+Do not modify files in `WIKI_RAW_DIR`. Raw is optional read-only input for the LLM wiki workflow, not the product the user reads day to day.
 
 ## Required Environment
 
@@ -64,7 +65,8 @@ The helper script reports freshness. The user approval step stays in the convers
 ### Ingest
 
 - Read one or a few raw files at a time.
-- Create or update a source page under `sources/`.
+- Distill them into wiki knowledge, not raw-file mirrors.
+- Create or update a source page under `sources/` that stands on its own as a useful summary.
 - Update linked entity/concept/analysis pages as needed.
 - Refresh `index.md`.
 - Append a chronological entry to `log.md`.
@@ -93,7 +95,10 @@ python3 scripts/log_operation.py --operation ingest --update-sync-marker --touch
 - Prefer directories such as `sources/`, `entities/`, `concepts/`, and `analyses/`.
 - `index.md` is the catalog. `log.md` is append-only chronology.
 - Use wiki links like `[[entities/example-topic]]`.
-- Optional frontmatter is allowed for `type`, `sources`, `last_reviewed`, and `raw_commit`.
+- The wiki is the primary knowledge artifact. Pages should be understandable without opening the raw source file.
+- Do not turn wiki pages into thin wrappers around file paths, commit hashes, or raw excerpts.
+- Keep raw-sync bookkeeping in helper metadata under `.steven-wiki/`, not in the visible page content model.
+- Optional frontmatter is allowed for `type`, `sources`, and `last_reviewed`.
 
 Read [references/configuration.md](references/configuration.md) for path/config details and [references/operations.md](references/operations.md) for workflow and page conventions. Use the helper scripts in `scripts/` for deterministic checks and logging instead of re-implementing them in chat.
 

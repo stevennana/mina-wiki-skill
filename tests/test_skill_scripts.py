@@ -211,6 +211,19 @@ class StevenWikiSkillTests(unittest.TestCase):
             "The Solace Cloud Console is the single-pane-of-glass UI for managing services.",
         )
 
+    def test_extract_title_and_summary_skips_link_only_lines(self) -> None:
+        raw_text = (
+            "# Example Title\n\n"
+            "| [](https://dev.solace.com) |\n\n"
+            "## Administration Tasks\n\n"
+            "This page explains the real content.\n"
+        )
+
+        title, summary = wiki_common.extract_title_and_summary(Path("example.md"), raw_text)
+
+        self.assertEqual(title, "Example Title")
+        self.assertEqual(summary, "This page explains the real content.")
+
     def test_bootstrap_wiki_script_creates_expected_structure(self) -> None:
         self.wiki_dir.rmdir()
         completed = subprocess.run(
@@ -281,6 +294,11 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         source_page = self.wiki_dir / "sources" / "topic.md"
         self.assertTrue(source_page.exists())
+        source_text = source_page.read_text(encoding="utf-8")
+        self.assertNotIn("raw_path:", source_text)
+        self.assertNotIn("raw_commit:", source_text)
+        source_map = json.loads((self.wiki_dir / ".steven-wiki" / "source_map.json").read_text(encoding="utf-8"))
+        self.assertEqual(source_map["topic.md"], "sources/topic")
         self.assertTrue((self.wiki_dir / "index.md").exists())
         self.assertTrue((self.wiki_dir / "log.md").exists())
         related_pages = list((self.wiki_dir / "concepts").glob("*.md")) + list((self.wiki_dir / "entities").glob("*.md"))
@@ -390,6 +408,10 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertTrue((self.wiki_dir / "sources" / "keep.md").exists())
         self.assertFalse((self.wiki_dir / "sources" / "remove.md").exists())
         self.assertTrue((self.wiki_dir / "sources" / "new.md").exists())
+        source_map = json.loads((self.wiki_dir / ".steven-wiki" / "source_map.json").read_text(encoding="utf-8"))
+        self.assertIn("keep.md", source_map)
+        self.assertIn("new.md", source_map)
+        self.assertNotIn("remove.md", source_map)
         _metadata, body = wiki_common.read_wiki_page(self.wiki_dir / "sources" / "keep.md")
         self.assertIn("Keep updated content", body)
         self.assertIn("sources/remove.md", payload["deleted_wiki_pages"])

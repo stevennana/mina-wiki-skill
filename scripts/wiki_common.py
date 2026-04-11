@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 from html import unescape
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ CONFIG_ENV_VAR = "STEVEN_WIKI_CONFIG"
 DEFAULT_CONFIG_NAME = ".steven-wiki.json"
 SYNC_METADATA_DIR = ".steven-wiki"
 SYNC_METADATA_NAME = "last_sync.json"
+SOURCE_MAP_NAME = "source_map.json"
 WIKI_PAGE_DIRS = ("sources", "entities", "concepts", "analyses")
 STOPWORDS = {
     "a",
@@ -82,6 +84,52 @@ NOISY_TOKENS = {
     "yes",
     "you",
     "your",
+}
+GENERIC_TITLE_PREFIXES = {
+    "about",
+    "accessing",
+    "adding",
+    "administering",
+    "assigning",
+    "building",
+    "changing",
+    "choosing",
+    "clearing",
+    "cloning",
+    "configuring",
+    "connecting",
+    "consuming",
+    "creating",
+    "deleting",
+    "deploying",
+    "designing",
+    "enabling",
+    "exploring",
+    "gathering",
+    "getting",
+    "initializing",
+    "installing",
+    "leveraging",
+    "logging",
+    "maintaining",
+    "managing",
+    "monitoring",
+    "powering",
+    "receiving",
+    "reviewing",
+    "sending",
+    "serializing",
+    "setting",
+    "trying",
+    "understanding",
+    "upgrading",
+    "using",
+    "what",
+}
+GENERIC_CONCEPT_LABELS = {
+    "api developer guide",
+    "api developer online ref documentation",
+    "docs solace com",
 }
 
 
@@ -217,6 +265,10 @@ def sync_metadata_path(wiki_dir: Path) -> Path:
     return wiki_dir / SYNC_METADATA_DIR / SYNC_METADATA_NAME
 
 
+def source_map_path(wiki_dir: Path) -> Path:
+    return wiki_dir / SYNC_METADATA_DIR / SOURCE_MAP_NAME
+
+
 def read_sync_metadata(wiki_dir: Path) -> dict[str, Any] | None:
     path = sync_metadata_path(wiki_dir)
     if not path.exists():
@@ -225,6 +277,26 @@ def read_sync_metadata(wiki_dir: Path) -> dict[str, Any] | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Sync metadata is not valid JSON: {path}") from exc
+
+
+def read_source_map(wiki_dir: Path) -> dict[str, str]:
+    path = source_map_path(wiki_dir)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"Source map is not valid JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ConfigError(f"Source map must be a JSON object: {path}")
+    return {str(key): str(value) for key, value in payload.items()}
+
+
+def write_source_map(wiki_dir: Path, mapping: dict[str, str]) -> Path:
+    ensure_wiki_structure(wiki_dir)
+    path = source_map_path(wiki_dir)
+    path.write_text(json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
 
 
 def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
@@ -326,7 +398,8 @@ def write_sync_metadata(wiki_dir: Path, raw_snapshot: dict[str, Any], operation:
 
 
 def slugify(value: str) -> str:
-    text = value.strip().lower()
+    text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    text = text.strip().lower()
     text = re.sub(r"[^\w\s/-]", "", text)
     text = text.replace("/", "-")
     text = re.sub(r"[-\s]+", "-", text)
@@ -490,13 +563,21 @@ def extract_keywords(text: str, limit: int = 5) -> list[str]:
 
 
 def extract_entity_terms(text: str, limit: int = 3) -> list[str]:
-    pattern = re.findall(r"\b([A-Z][a-z]+(?: [A-Z][a-z0-9]+){0,2})\b", text)
+    pattern = re.findall(r"\b((?:[A-Z][a-z0-9+.-]*|[A-Z]{2,})(?: (?:[A-Z][a-z0-9+.-]*|[A-Z]{2,})){0,3})\b", text)
     seen: list[str] = []
     for term in pattern:
         cleaned = term.strip()
-        if cleaned.lower() in STOPWORDS:
+        lower_cleaned = cleaned.lower()
+        if lower_cleaned in STOPWORDS:
             continue
-        if cleaned.lower() in BOILERPLATE_LINES:
+        if lower_cleaned in BOILERPLATE_LINES:
+            continue
+        words = cleaned.split()
+        if len(words) == 1 and cleaned != "Solace":
+            continue
+        if words[0].lower() in GENERIC_TITLE_PREFIXES:
+            continue
+        if cleaned.endswith(" Page") or cleaned.endswith(" Guide"):
             continue
         if cleaned not in seen:
             seen.append(cleaned)
@@ -505,10 +586,52 @@ def extract_entity_terms(text: str, limit: int = 3) -> list[str]:
     return seen
 
 
-def choose_related_terms(title: str, content: str) -> dict[str, list[str]]:
-    keywords = [term for term in extract_keywords(f"{title}\n{content}", limit=4) if term not in {"summary", "source"}]
-    entities = extract_entity_terms(content or title, limit=3)
-    return {"concepts": keywords, "entities": entities}
+def format_topic_label(value: str) -> str:
+    cleaned = value.replace("_", " ").replace("-", " ").strip()
+    cleaned = cleaned.replace(".", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.title()
+
+
+def extract_path_topics(raw_relative: Path, limit: int = 3) -> list[str]:
+    topics: list[str] = []
+    for part in raw_relative.parts[:-1]:
+        label = format_topic_label(part)
+        lower_label = label.lower()
+        if lower_label in GENERIC_CONCEPT_LABELS:
+            continue
+        if len(lower_label) < 4:
+            continue
+        if label not in topics:
+            topics.append(label)
+        if len(topics) >= limit:
+            break
+    return topics
+
+
+def is_entity_like_title(title: str) -> bool:
+    words = title.split()
+    if len(words) < 2:
+        return False
+    if words[0].lower() in GENERIC_TITLE_PREFIXES:
+        return False
+    return title.startswith("Solace ")
+
+
+def choose_related_terms(title: str, content: str, raw_relative: Path) -> dict[str, list[str]]:
+    concepts: list[str] = []
+    for candidate in extract_path_topics(raw_relative):
+        if candidate not in concepts:
+            concepts.append(candidate)
+        if len(concepts) >= 3:
+            break
+    if not concepts and len(title.split()) >= 2 and title.split()[0].lower() not in GENERIC_TITLE_PREFIXES:
+        concepts.append(title)
+
+    entities: list[str] = []
+    if is_entity_like_title(title):
+        entities.append(title)
+    return {"concepts": concepts, "entities": entities}
 
 
 def now_iso_date() -> str:
@@ -558,11 +681,13 @@ def extract_title_and_summary(raw_path: Path, text: str) -> tuple[str, str]:
 
     summary = ""
     for line in raw_lines:
-        if line.startswith("# "):
+        if re.match(r"^#{1,6}\s+", line):
             continue
         if line.lower() == title.lower():
             continue
         if len(line) < 20:
+            continue
+        if re.fullmatch(r"\|?\s*(\[\]\([^)]+\)\s*\|?\s*)+", line):
             continue
         if re.fullmatch(r"[|:\- ]+", line):
             continue
@@ -571,3 +696,24 @@ def extract_title_and_summary(raw_path: Path, text: str) -> tuple[str, str]:
     if not summary:
         summary = f"Raw source {raw_path.name}"
     return title, summary[:240]
+
+
+def extract_key_points(text: str, title: str, limit: int = 5) -> list[str]:
+    cleaned = normalize_raw_text(text)
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for line in cleaned.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("# "):
+            continue
+        if stripped.lower() == title.lower():
+            continue
+        if len(stripped) < 20:
+            continue
+        if stripped in seen:
+            continue
+        seen.add(stripped)
+        candidates.append(stripped)
+        if len(candidates) >= limit:
+            break
+    return candidates

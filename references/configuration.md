@@ -4,7 +4,7 @@
 
 The skill uses two external directories:
 
-- `WIKI_RAW_DIR`: raw sources, read-only from the skill's point of view, must be a git repository
+- `WIKI_RAW_DIR`: raw sources, read-only from the skill's point of view, optional input for ingestion and sync
 - `WIKI_DIR`: shared wiki, writable by adopted LLM CLI sessions
 
 The skill never mutates raw files.
@@ -64,3 +64,5 @@ The skill stores sync metadata in:
 `WIKI_DIR/.steven-wiki/last_sync.json`
 
 This file records the last raw commit and dirty-state snapshot that were successfully incorporated into the wiki. Raw freshness checks compare the current raw git state against this marker.
+
+The skill may also keep sync bookkeeping such as source-to-page mappings under `WIKI_DIR/.steven-wiki/`. That metadata supports maintenance workflows and should not be treated as part of the user-facing wiki content model.

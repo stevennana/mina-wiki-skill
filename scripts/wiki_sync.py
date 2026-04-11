@@ -17,11 +17,13 @@ from wiki_common import (
     git_snapshot,
     now_iso_date,
     read_wiki_page,
+    read_source_map,
     resolve_paths,
     safe_relative_to,
     source_page_path,
     validate_paths,
     wiki_page_ref,
+    write_source_map,
     write_sync_metadata,
     write_wiki_page,
 )
@@ -51,13 +53,9 @@ def list_raw_files(raw_dir: Path) -> list[Path]:
 
 def existing_source_map(wiki_dir: Path) -> dict[str, Path]:
     mapping: dict[str, Path] = {}
-    sources_dir = wiki_dir / "sources"
-    if not sources_dir.exists():
-        return mapping
-    for page in sorted(sources_dir.rglob("*.md")):
-        metadata, _body = read_wiki_page(page)
-        raw_path = metadata.get("raw_path")
-        if isinstance(raw_path, str) and raw_path.strip():
+    for raw_path, page_ref in read_source_map(wiki_dir).items():
+        page = wiki_dir / f"{page_ref}.md"
+        if page.exists():
             mapping[raw_path] = page
     return mapping
 
@@ -95,6 +93,8 @@ def cleanup_related_pages(wiki_dir: Path, source_ref: str) -> list[str]:
 
 def delete_missing_sources(paths, raw_relatives: set[str]) -> list[str]:
     touched: list[str] = []
+    source_map = read_source_map(paths.wiki_dir)
+    updated_map = dict(source_map)
     for raw_path, page in existing_source_map(paths.wiki_dir).items():
         if raw_path in raw_relatives:
             continue
@@ -102,6 +102,9 @@ def delete_missing_sources(paths, raw_relatives: set[str]) -> list[str]:
         page.unlink()
         touched.append(str(page.relative_to(paths.wiki_dir)))
         touched.extend(cleanup_related_pages(paths.wiki_dir, source_ref))
+        updated_map.pop(raw_path, None)
+    if updated_map != source_map:
+        write_source_map(paths.wiki_dir, updated_map)
     return touched
 
 

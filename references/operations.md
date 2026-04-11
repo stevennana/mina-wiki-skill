@@ -14,11 +14,12 @@ Run `python3 scripts/wiki_sync_status.py` first.
 Recommended flow:
 
 1. Read the changed or selected raw files.
-2. Create or update one page in `sources/`.
-3. Update any impacted pages in `entities/`, `concepts/`, or `analyses/`.
-4. Add or revise the page entry in `index.md`.
-5. Append a log entry.
-6. Update sync metadata when the ingest reflects current raw state.
+2. Distill them into standalone wiki knowledge instead of mirroring file paths or raw excerpts.
+3. Create or update one page in `sources/`.
+4. Update any impacted pages in `entities/`, `concepts/`, or `analyses/`.
+5. Add or revise the page entry in `index.md`.
+6. Append a log entry.
+7. Update sync metadata when the ingest reflects current raw state.
 
 Use:
 
@@ -59,8 +60,8 @@ type: entity
 sources:
   - sources/example-source
 last_reviewed: 2026-04-11
-raw_commit: abc1234
 ---
 ```
 
 Prefer stable page placement and deterministic names so multiple sessions update the same pages instead of creating near-duplicates.
+Prefer visible page content that reads like maintained knowledge, not sync bookkeeping. Keep raw-to-page mappings and similar operational state under `.steven-wiki/`.
