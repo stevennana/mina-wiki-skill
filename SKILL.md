@@ -7,6 +7,8 @@ This skill turns an adopted LLM CLI session into a disciplined wiki maintainer f
 
 Scripts in this repository are helpers, not the maintainer. They can scaffold pages, detect sync state, and keep bookkeeping metadata, but the LLM using this skill is responsible for building the actual knowledge base by reading sources, revising pages, strengthening cross-links, adding synthesis pages, and linting weak or stale content.
 
+The maintained wiki is the primary knowledge base for ongoing LLM work. `WIKI_RAW_DIR` is not the day-to-day reference source for answering user questions or solving problems. Raw exists only as ingestion input when the wiki must be built, refreshed, or repaired.
+
 ## Required Working Loop
 
 This skill is not complete when the bootstrap finishes. The required operating loop is:
@@ -30,12 +32,19 @@ When the user asks for the wiki to be built, upgraded, refreshed, or brought up 
 
 You are not a filing clerk. You are the wiki's editor and synthesist.
 
-- Treat raw material as evidence, not as output.
+- Treat the wiki as the default knowledge source.
+- Treat raw material as ingestion input, not as the default reference source.
 - Treat generated pages as drafts, not as deliverables.
 - Every page you touch should become more useful, more coherent, and more connected.
 - The wiki should read like maintained knowledge, not like a sync transcript or a pile of extracted notes.
 
 The core question is not "where do I put this fact?" It is "what does this mean, and how should the wiki change because of it?"
+
+When the user asks a question about the project domain, answer from the wiki first. Only go back to raw if:
+
+- the wiki is missing the needed knowledge
+- the wiki is stale and must be refreshed
+- the user explicitly asks for raw inspection
 
 ## When To Use
 
@@ -48,6 +57,8 @@ Use this skill when:
 - the user wants to check whether the wiki is behind the raw git repo
 
 Do not modify files in `WIKI_RAW_DIR` except when the user explicitly asks you to initialize git tracking there. Raw is optional read-only input for the LLM wiki workflow, not the product the user reads day to day.
+
+Do not browse `WIKI_RAW_DIR` casually during ordinary question-answering. Raw is not the live working memory of the project. The wiki is.
 
 ## Required Environment
 
@@ -119,10 +130,20 @@ When a user wants the wiki maintained, follow this order unless they explicitly 
 Do not stop at step 2 unless the user explicitly asked for bootstrap only.
 Do not ask the user for permission between these steps unless a real blocker or ambiguity would make continuing risky. The default behavior is to continue.
 
+When the user wants an answer or problem-solving help rather than wiki maintenance, use this order:
+
+1. Read `index.md`.
+2. Read the most relevant wiki pages and analyses.
+3. Answer from the wiki.
+4. Only if the wiki is insufficient, switch into a wiki-refresh flow that may read raw and then update the wiki.
+
+Do not default to raw-first exploration for ordinary domain questions.
+
 ## Non-Negotiable Editing Rules
 
 - Read `index.md` before targeted wiki work so you match against existing pages instead of creating near-duplicates.
 - Re-read every wiki page before updating it. Do not patch blind from memory.
+- For ordinary project questions, read wiki pages before considering raw sources.
 - Never treat a script-generated stub as "done". Rewrite it if it reads like scaffolding.
 - Do not append loose chronology to the bottom of a page when the page should be reorganized by topic, role, architecture, workflow, or pattern.
 - If a page cannot support at least 3 meaningful sentences, do not create it yet unless the user explicitly wants a placeholder.
@@ -166,6 +187,8 @@ After bootstrap, the LLM must walk the raw corpus and keep looping. The intended
 
 This is not a search-only or spot-check workflow. It is a progressive editorial compilation workflow.
 It is also not a question-driven workflow once the user has already asked for the wiki to be maintained. The LLM should keep moving through the corpus and updating the wiki without asking for confirmation between ordinary ingest steps.
+
+Outside of an active ingest or refresh loop, do not treat the raw corpus as the primary browsing surface. The whole point of the workflow is to move durable knowledge out of raw and into the wiki so later sessions can work from the wiki first.
 
 When processing each raw file, decide:
 - does the existing `sources/` page need a better summary?
@@ -254,6 +277,7 @@ python3 scripts/log_operation.py --operation ingest --update-sync-marker --touch
 - Read only the pages needed to answer, then follow cross-links surgically.
 - Lead with the answer, then support it with wiki evidence.
 - Cite wiki pages explicitly in the answer.
+- Treat raw as out of scope for ordinary queries unless the wiki is missing needed knowledge and must be refreshed.
 - If the result is durable knowledge, file it under `analyses/` or another appropriate page and log it.
 
 ### Lint
