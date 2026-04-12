@@ -36,7 +36,7 @@ def run_git_commit(raw_dir: str, message: str) -> None:
         [
             "git",
             "-c",
-            "user.name=Steven Wiki Skill",
+            "user.name=mina-wiki-skill",
             "-c",
             "user.email=mina-wiki-skill@local",
             "commit",

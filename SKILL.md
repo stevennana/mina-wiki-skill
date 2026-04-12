@@ -64,18 +64,18 @@ Do not browse `WIKI_RAW_DIR` casually during ordinary question-answering. Raw is
 
 Resolve directories in this order:
 1. `WIKI_RAW_DIR` and `WIKI_DIR`
-2. optional config file from `STEVEN_WIKI_CONFIG`
-3. optional `.steven-wiki.json` discovered in the current project or a parent directory
+2. optional config file from `MINA_WIKI_CONFIG`
+3. optional `.mina-wiki.json` discovered in the current project or a parent directory
 
 When the user asks to use this skill and the environment is not configured yet, guide them to set the directories in either:
 - shell session startup files such as `~/.zprofile` or `~/.zshrc`
-- a project-local `.steven-wiki.json`
+- a project-local `.mina-wiki.json`
 
 Preferred guidance:
 - explain the two variables and what they point to
 - offer to configure them on the user's behalf if editing their shell profile or project config is appropriate
 - after editing a shell profile, remind the user to run `source ~/.zprofile` or `source ~/.zshrc`, or start a new shell session
-- for project-specific setup, prefer `.steven-wiki.json` when different projects should point at different wiki roots or when the user does not want global shell changes
+- for project-specific setup, prefer `.mina-wiki.json` when different projects should point at different wiki roots or when the user does not want global shell changes
 
 Validate paths before substantive work:
 
@@ -316,7 +316,7 @@ The wiki is not high quality while any of these remain in the touched area:
 - Use wiki links like `[[entities/example-topic]]`.
 - The wiki is the primary knowledge artifact. Pages should be understandable without opening the raw source file.
 - Do not turn wiki pages into thin wrappers around file paths, commit hashes, or raw excerpts.
-- Keep raw-sync bookkeeping in helper metadata under `.steven-wiki/`, not in the visible page content model.
+- Keep raw-sync bookkeeping in helper metadata under `.mina-wiki/`, not in the visible page content model.
 - Optional frontmatter is allowed for `type`, `sources`, and `last_reviewed`.
 - Prefer theme-driven sections such as overview, responsibilities, architecture, workflows, tradeoffs, and related concepts over date-driven sections unless the page is inherently historical.
 - Use direct quotes sparingly and only when they preserve meaning that a paraphrase would flatten.

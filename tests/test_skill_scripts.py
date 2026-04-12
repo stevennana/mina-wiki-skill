@@ -26,7 +26,7 @@ def git(cwd: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-class StevenWikiSkillTests(unittest.TestCase):
+class MinaWikiSkillTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
@@ -50,12 +50,12 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_env_resolution_wins(self) -> None:
-        config = self.root / ".steven-wiki.json"
+        config = self.root / ".mina-wiki.json"
         config.write_text(
             json.dumps({"raw_dir": "/tmp/ignored-raw", "wiki_dir": "/tmp/ignored-wiki"}),
             encoding="utf-8",
         )
-        os.environ["STEVEN_WIKI_CONFIG"] = str(config)
+        os.environ["MINA_WIKI_CONFIG"] = str(config)
         paths = wiki_common.resolve_paths()
         self.assertEqual(paths.raw_dir, self.raw_dir.resolve())
         self.assertEqual(paths.wiki_dir, self.wiki_dir.resolve())
@@ -65,7 +65,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         os.environ.pop("WIKI_DIR", None)
         nested = self.root / "project" / "notes"
         nested.mkdir(parents=True)
-        config = self.root / "project" / ".steven-wiki.json"
+        config = self.root / "project" / ".mina-wiki.json"
         config.write_text(
             json.dumps({"raw_dir": str(self.raw_dir), "wiki_dir": str(self.wiki_dir)}),
             encoding="utf-8",
@@ -120,7 +120,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertTrue(payload["ok"])
         self.assertTrue((self.wiki_dir / "log.md").exists())
-        self.assertTrue((self.wiki_dir / ".steven-wiki" / "last_sync.json").exists())
+        self.assertTrue((self.wiki_dir / ".mina-wiki" / "last_sync.json").exists())
 
     def test_check_paths_script_reports_success(self) -> None:
         completed = subprocess.run(
@@ -436,7 +436,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertTrue((self.wiki_dir / "entities").is_dir())
         self.assertTrue((self.wiki_dir / "concepts").is_dir())
         self.assertTrue((self.wiki_dir / "analyses").is_dir())
-        self.assertTrue((self.wiki_dir / ".steven-wiki").is_dir())
+        self.assertTrue((self.wiki_dir / ".mina-wiki").is_dir())
         self.assertTrue((self.wiki_dir / "index.md").exists())
         self.assertTrue((self.wiki_dir / "log.md").exists())
 
@@ -492,7 +492,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         source_text = source_page.read_text(encoding="utf-8")
         self.assertNotIn("raw_path:", source_text)
         self.assertNotIn("raw_commit:", source_text)
-        source_map = json.loads((self.wiki_dir / ".steven-wiki" / "source_map.json").read_text(encoding="utf-8"))
+        source_map = json.loads((self.wiki_dir / ".mina-wiki" / "source_map.json").read_text(encoding="utf-8"))
         self.assertEqual(source_map["topic.md"], "sources/topic")
         self.assertTrue((self.wiki_dir / "index.md").exists())
         self.assertTrue((self.wiki_dir / "log.md").exists())
@@ -554,7 +554,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertEqual(payload["synced_raw_files"], 3)
         self.assertTrue((self.wiki_dir / "sources" / "docs-overview.md").exists())
         self.assertTrue((self.wiki_dir / "sources" / "docs-setup.md").exists())
-        self.assertTrue((self.wiki_dir / ".steven-wiki" / "last_sync.json").exists())
+        self.assertTrue((self.wiki_dir / ".mina-wiki" / "last_sync.json").exists())
 
     def test_wiki_sync_handles_update_delete_and_add(self) -> None:
         keep_file = self.raw_dir / "keep.md"
@@ -603,7 +603,7 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertTrue((self.wiki_dir / "sources" / "keep.md").exists())
         self.assertFalse((self.wiki_dir / "sources" / "remove.md").exists())
         self.assertTrue((self.wiki_dir / "sources" / "new.md").exists())
-        source_map = json.loads((self.wiki_dir / ".steven-wiki" / "source_map.json").read_text(encoding="utf-8"))
+        source_map = json.loads((self.wiki_dir / ".mina-wiki" / "source_map.json").read_text(encoding="utf-8"))
         self.assertIn("keep.md", source_map)
         self.assertIn("new.md", source_map)
         self.assertNotIn("remove.md", source_map)

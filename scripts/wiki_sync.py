@@ -118,7 +118,7 @@ def rebuild_index(script_dir: Path) -> None:
 
 
 def reset_generated_content(wiki_dir: Path) -> None:
-    for relative in ("sources", "concepts", "entities", "analyses", ".steven-wiki"):
+    for relative in ("sources", "concepts", "entities", "analyses", ".mina-wiki"):
         root = wiki_dir / relative
         if not root.exists():
             continue

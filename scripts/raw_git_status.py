@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print raw git status for the Steven Wiki skill."""
+"""Print raw git status for mina-wiki-skill."""
 
 from __future__ import annotations
 

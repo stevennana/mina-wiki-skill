@@ -1,6 +1,6 @@
-# Steven Wiki Skill
+# mina-wiki-skill
 
-`steven-wiki-skill` is a Codex-style skill for maintaining a shared markdown wiki from a raw source directory and ongoing LLM session work.
+`mina-wiki-skill` is a Codex-style skill for maintaining a shared markdown wiki from a raw source directory and ongoing LLM session work.
 
 This project is inspired by Andrej Karpathy's [LLM Wiki](https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw/ac46de1ad27f92b28ac95459c782c07f6b8c964a/llm-wiki.md) concept: a persistent, LLM-maintained wiki that sits between raw source material and query-time answers.
 
@@ -51,7 +51,7 @@ The intended operating model is:
 
 ### Codex CLI
 
-Install this repository as a local Codex skill by copying or linking it into your Codex skills directory as `steven-wiki-skill`.
+Install this repository as a local Codex skill by copying or linking it into your Codex skills directory as `mina-wiki-skill`.
 
 Typical local install:
 
@@ -72,7 +72,7 @@ After installation, restart Codex so it reloads available skills.
 You can then invoke it explicitly in Codex with prompts such as:
 
 ```text
-Use $steven-wiki-skill to check whether my wiki is behind raw and guide me through sync.
+Use $mina-wiki-skill to check whether my wiki is behind raw and guide me through sync.
 ```
 
 If the adopting project keeps its own `AGENTS.md`, inject a `Codex Wiki Commands` section that points at the generated files under `generated/slash-commands/codex/`.
@@ -101,8 +101,8 @@ This keeps Codex and Claude aligned on the same wiki workflow even though their 
 The skill resolves directories in this order:
 
 1. `WIKI_RAW_DIR` and `WIKI_DIR`
-2. `STEVEN_WIKI_CONFIG`
-3. `.steven-wiki.json` in the current project or a parent directory
+2. `MINA_WIKI_CONFIG`
+3. `.mina-wiki.json` in the current project or a parent directory
 
 Example config file:
 
@@ -139,12 +139,12 @@ or:
 source ~/.zshrc
 ```
 
-If you prefer project-specific setup, create `.steven-wiki.json` in the project root instead of changing your global shell profile.
+If you prefer project-specific setup, create `.mina-wiki.json` in the project root instead of changing your global shell profile.
 
 When helping a user interactively, the assistant should explicitly offer:
 - to configure `WIKI_RAW_DIR` and `WIKI_DIR` on the user's behalf
 - to use shell-profile setup for all sessions
-- or to use `.steven-wiki.json` for project-local configuration
+- or to use `.mina-wiki.json` for project-local configuration
 
 ## Helper commands
 
@@ -272,7 +272,7 @@ Inside `WIKI_DIR`, the skill expects or can create:
 - `entities/`: entity pages
 - `concepts/`: concept pages
 - `analyses/`: filed query results and synthesis
-- `.steven-wiki/last_sync.json`: sync metadata
+- `.mina-wiki/last_sync.json`: sync metadata
 
 ## Typical workflow
 

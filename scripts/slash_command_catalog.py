@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Slash-command catalog for Steven Wiki skill."""
+"""Slash-command catalog for mina-wiki-skill."""
 
 from __future__ import annotations
 

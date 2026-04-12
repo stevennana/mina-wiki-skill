@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate raw/wiki directories for the Steven Wiki skill."""
+"""Validate raw/wiki directories for mina-wiki-skill."""
 
 from __future__ import annotations
 

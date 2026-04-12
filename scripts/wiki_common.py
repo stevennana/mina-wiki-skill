@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for Steven Wiki skill scripts."""
+"""Shared helpers for mina-wiki-skill scripts."""
 
 from __future__ import annotations
 
@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Any
 
 
-CONFIG_ENV_VAR = "STEVEN_WIKI_CONFIG"
-DEFAULT_CONFIG_NAME = ".steven-wiki.json"
-SYNC_METADATA_DIR = ".steven-wiki"
+CONFIG_ENV_VAR = "MINA_WIKI_CONFIG"
+LEGACY_CONFIG_ENV_VAR = "STEVEN_WIKI_CONFIG"
+DEFAULT_CONFIG_NAME = ".mina-wiki.json"
+SYNC_METADATA_DIR = ".mina-wiki"
 SYNC_METADATA_NAME = "last_sync.json"
 SOURCE_MAP_NAME = "source_map.json"
 WIKI_PAGE_DIRS = ("sources", "entities", "concepts", "analyses")
@@ -146,7 +147,7 @@ class ResolvedPaths:
 
 
 def discover_config(start_dir: Path | None = None) -> Path | None:
-    env_path = os.environ.get(CONFIG_ENV_VAR)
+    env_path = os.environ.get(CONFIG_ENV_VAR) or os.environ.get(LEGACY_CONFIG_ENV_VAR)
     if env_path:
         path = Path(env_path).expanduser().resolve()
         return path if path.exists() else path

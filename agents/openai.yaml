@@ -1,5 +1,5 @@
 interface:
-  display_name: "Steven Wiki Skill"
+  display_name: "mina-wiki-skill"
   short_description: "Maintain a shared LLM-written wiki"
   default_prompt: "Use $mina-wiki-skill to check raw/wiki freshness, update wiki pages, and maintain the shared knowledge base."
 

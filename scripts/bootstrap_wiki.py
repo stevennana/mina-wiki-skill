@@ -24,7 +24,7 @@ def main() -> int:
                 {
                     "ok": True,
                     "wiki_dir": str(paths.wiki_dir),
-                    "created": ["sources", "entities", "concepts", "analyses", ".steven-wiki", "index.md", "log.md"],
+                    "created": ["sources", "entities", "concepts", "analyses", ".mina-wiki", "index.md", "log.md"],
                 },
                 indent=2,
             )

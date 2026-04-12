@@ -100,4 +100,4 @@ last_reviewed: 2026-04-11
 ```
 
 Prefer stable page placement and deterministic names so multiple sessions update the same pages instead of creating near-duplicates.
-Prefer visible page content that reads like maintained knowledge, not sync bookkeeping. Keep raw-to-page mappings and similar operational state under `.steven-wiki/`.
+Prefer visible page content that reads like maintained knowledge, not sync bookkeeping. Keep raw-to-page mappings and similar operational state under `.mina-wiki/`.
