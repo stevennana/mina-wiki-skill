@@ -54,7 +54,7 @@ def render_command_markdown(target: str, command: SlashCommand) -> str:
 def main() -> int:
     args = parse_args()
     output_root = Path(args.output_dir).resolve()
-    manifest: dict[str, object] = {"targets": {}}
+    manifest: dict[str, object] = {"targets": {}, "project_injection": {}}
 
     for target in ("codex", "claude"):
         target_dir = output_root / target
@@ -71,6 +71,31 @@ def main() -> int:
                 }
             )
         manifest["targets"][target] = target_commands
+
+    codex_commands = manifest["targets"]["codex"]
+    codex_lines = [
+        "## Codex Wiki Commands",
+        "",
+        "This project uses `steven-wiki-skill` for wiki maintenance. For Codex, use the generated command contracts in:",
+        "",
+        "`generated/slash-commands/codex/`",
+        "",
+        "Available commands:",
+    ]
+    codex_lines.extend(f"- `/{item['name']}`" for item in codex_commands)
+    codex_lines.extend(["", "Command contract files:"])
+    codex_lines.extend(f"- `{item['path']}`" for item in codex_commands)
+    codex_lines.extend(
+        [
+            "",
+            "Use these as stable command-shaped prompts in Codex. They are not native Claude-style slash commands,",
+            "but they define the exact behavior Codex should follow for project wiki operations.",
+            "",
+        ]
+    )
+    codex_snippet_path = output_root / "codex-commands-snippet.md"
+    codex_snippet_path.write_text("\n".join(codex_lines), encoding="utf-8")
+    manifest["project_injection"]["codex_agents_section"] = str(codex_snippet_path.relative_to(output_root))
 
     manifest_path = output_root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

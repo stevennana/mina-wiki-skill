@@ -10,7 +10,7 @@ To generate reusable prompt files from this contract, run:
 python3 scripts/generate_slash_commands.py
 ```
 
-By default this creates `generated/slash-commands/codex/`, `generated/slash-commands/claude/`, and `generated/slash-commands/manifest.json`.
+By default this creates `generated/slash-commands/codex/`, `generated/slash-commands/claude/`, `generated/slash-commands/manifest.json`, and `generated/slash-commands/codex-commands-snippet.md`.
 
 ## Design goals
 
@@ -166,6 +166,8 @@ Example prompt:
 ## Codex CLI usage
 
 For Codex CLI, treat these as stable command-shaped prompts. A practical pattern is to keep them in your operator notes or project prompt library and invoke them exactly as written.
+
+If the adopting project has an `AGENTS.md`, inject the generated `Codex Wiki Commands` snippet there and point it at `generated/slash-commands/codex/`.
 
 Recommended commands:
 

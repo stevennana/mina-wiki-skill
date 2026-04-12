@@ -75,6 +75,8 @@ You can then invoke it explicitly in Codex with prompts such as:
 Use $steven-wiki-skill to check whether my wiki is behind raw and guide me through sync.
 ```
 
+If the adopting project keeps its own `AGENTS.md`, inject a `Codex Wiki Commands` section that points at the generated files under `generated/slash-commands/codex/`.
+
 ### Claude Code
 
 Claude Code does not use this exact Codex skill packaging format directly, so the practical installation path is:
@@ -220,6 +222,8 @@ Generate reusable slash-command prompt files for Codex CLI and Claude Code:
 ```bash
 python3 scripts/generate_slash_commands.py
 ```
+
+This also generates `generated/slash-commands/codex-commands-snippet.md`, which is intended to be copied into a project's `AGENTS.md`.
 
 Ingest a raw file into the wiki:
 

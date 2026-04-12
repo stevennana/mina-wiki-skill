@@ -301,3 +301,10 @@ The wiki is not high quality while any of these remain in the touched area:
 Read [references/configuration.md](references/configuration.md) for path/config details and [references/operations.md](references/operations.md) for workflow and page conventions. Use the helper scripts in `scripts/` for deterministic checks and logging instead of re-implementing them in chat.
 
 For reusable operator shortcuts, read [references/slash-commands.md](references/slash-commands.md). Use those prompt contracts when the user wants command-like wiki operations such as add, update, delete, sync, query, or lint from Codex CLI or Claude Code.
+
+When this skill is adopted into another project, installation is not complete until project-local instructions are injected:
+
+- if the project has `AGENTS.md`, inject a `Codex Wiki Commands` section into it
+- if the project has `CLAUDE.md`, inject the Claude-oriented wiki workflow into it
+- if these files do not exist, create them and inject the relevant wiki principles
+- when `generate_slash_commands.py` is used, treat `generated/slash-commands/codex-commands-snippet.md` as the canonical section to inject into `AGENTS.md`
