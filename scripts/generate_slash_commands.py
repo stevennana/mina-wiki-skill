@@ -76,7 +76,7 @@ def main() -> int:
     codex_lines = [
         "## Codex Wiki Commands",
         "",
-        "This project uses `steven-wiki-skill` for wiki maintenance. For Codex, use the generated command contracts in:",
+        "This project uses `mina-wiki-skill` for wiki maintenance. For Codex, use the generated command contracts in:",
         "",
         "`generated/slash-commands/codex/`",
         "",

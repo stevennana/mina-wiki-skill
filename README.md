@@ -57,14 +57,14 @@ Typical local install:
 
 ```bash
 mkdir -p ~/.codex/skills
-ln -s /absolute/path/to/steven-wiki-skill ~/.codex/skills/steven-wiki-skill
+ln -s /absolute/path/to/mina-wiki-skill ~/.codex/skills/mina-wiki-skill
 ```
 
 If you prefer a plain copy instead of a symlink:
 
 ```bash
 mkdir -p ~/.codex/skills
-cp -R /absolute/path/to/steven-wiki-skill ~/.codex/skills/steven-wiki-skill
+cp -R /absolute/path/to/mina-wiki-skill ~/.codex/skills/mina-wiki-skill
 ```
 
 After installation, restart Codex so it reloads available skills.

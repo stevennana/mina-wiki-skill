@@ -1,7 +1,7 @@
 interface:
   display_name: "Steven Wiki Skill"
   short_description: "Maintain a shared LLM-written wiki"
-  default_prompt: "Use $steven-wiki-skill to check raw/wiki freshness, update wiki pages, and maintain the shared knowledge base."
+  default_prompt: "Use $mina-wiki-skill to check raw/wiki freshness, update wiki pages, and maintain the shared knowledge base."
 
 policy:
   allow_implicit_invocation: true

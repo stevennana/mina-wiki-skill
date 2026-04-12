@@ -1,5 +1,5 @@
 ---
-name: steven-wiki-skill
+name: mina-wiki-skill
 description: Maintain a shared markdown wiki from raw source directories and session-derived knowledge. Use when an adopted LLM CLI project should detect raw updates, sync wiki pages, answer from the wiki, or lint a persistent knowledge base backed by WIKI_RAW_DIR and WIKI_DIR.
 ---
 
