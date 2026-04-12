@@ -20,9 +20,9 @@ The skill works with two external directories:
 
 The wiki is the primary artifact. The LLM should write pages that stand on their own, integrating knowledge from raw material instead of mirroring file paths or dumping raw excerpts. The raw directory is read-only input and optional after ingestion. The skill uses git state to detect whether the wiki is behind the latest raw changes when `WIKI_RAW_DIR` is present.
 
-If the raw repo has not been committed yet, the workflow treats that as an initial bootstrap phase:
+If the raw repo has not been initialized or committed yet, the workflow treats that as an initial bootstrap phase:
 - ingest the current raw tree into the wiki first
-- once the wiki is implemented enough to reflect that initial tree, create the first commit in `WIKI_RAW_DIR`
+- once the wiki is implemented enough to reflect that initial tree, initialize git and create the first commit in `WIKI_RAW_DIR`
 - use that baseline commit plus sync metadata for future change detection
 
 When an adopted LLM CLI session starts, it can:
@@ -158,13 +158,27 @@ Inspect raw git state:
 python3 scripts/raw_git_status.py
 ```
 
+Initialize git tracking for the raw directory after the first useful wiki bootstrap:
+
+```bash
+python3 scripts/raw_git_init.py
+python3 scripts/raw_git_init.py --initial-commit
+```
+
+Initialize git tracking for the wiki directory when you want commit-backed wiki history:
+
+```bash
+python3 scripts/wiki_git_init.py
+python3 scripts/wiki_git_init.py --initial-commit
+```
+
 Check whether the wiki is behind raw:
 
 ```bash
 python3 scripts/wiki_sync_status.py
 ```
 
-If this reports `baseline_commit_recommended: true`, finish the initial wiki sync first, then create the first commit in `WIKI_RAW_DIR` so later syncs can rely on git history instead of only a dirty working tree.
+If this reports `baseline_commit_recommended: true`, finish the initial wiki sync first, then create the first commit in `WIKI_RAW_DIR` so later syncs can rely on git history instead of only helper metadata.
 
 Create the minimal wiki structure:
 
@@ -195,6 +209,12 @@ python3 scripts/log_operation.py \
   --update-sync-marker
 ```
 
+Commit a coherent wiki batch after an editorial pass:
+
+```bash
+python3 scripts/wiki_commit_batch.py --message "Rewrite cloud and event mesh knowledge pages"
+```
+
 Generate reusable slash-command prompt files for Codex CLI and Claude Code:
 
 ```bash
@@ -223,6 +243,7 @@ Lint the wiki for stale or weak structure:
 
 ```bash
 python3 scripts/wiki_lint.py
+python3 scripts/wiki_quality_audit.py
 ```
 
 Check session-start sync state:

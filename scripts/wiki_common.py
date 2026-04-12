@@ -204,9 +204,6 @@ def validate_paths(paths: ResolvedPaths) -> list[str]:
     elif not paths.wiki_dir.is_dir():
         errors.append(f"Wiki directory is not a directory: {paths.wiki_dir}")
 
-    if paths.raw_dir.exists() and not is_git_repo(paths.raw_dir):
-        errors.append(f"Raw directory is not a git repository: {paths.raw_dir}")
-
     if paths.wiki_dir.exists() and not os.access(paths.wiki_dir, os.W_OK):
         errors.append(f"Wiki directory is not writable: {paths.wiki_dir}")
 
@@ -234,6 +231,19 @@ def run_git(path: Path, args: list[str]) -> str:
 
 
 def git_snapshot(raw_dir: Path) -> dict[str, Any]:
+    if not is_git_repo(raw_dir):
+        changed_files = [str(path.relative_to(raw_dir)) for path in sorted(raw_dir.rglob("*")) if path.is_file()]
+        return {
+            "branch": None,
+            "head": None,
+            "short_head": "no-git",
+            "has_commits": False,
+            "git_enabled": False,
+            "dirty": False,
+            "status_short": [],
+            "changed_files": changed_files,
+        }
+
     try:
         branch = run_git(raw_dir, ["rev-parse", "--abbrev-ref", "HEAD"])
     except ConfigError:
@@ -255,6 +265,7 @@ def git_snapshot(raw_dir: Path) -> dict[str, Any]:
         "head": head,
         "short_head": short_head,
         "has_commits": has_commits,
+        "git_enabled": True,
         "dirty": bool(status_short),
         "status_short": status_short.splitlines(),
         "changed_files": changed_files,
@@ -299,10 +310,19 @@ def write_source_map(wiki_dir: Path, mapping: dict[str, str]) -> Path:
     return path
 
 
+def existing_source_pages(wiki_dir: Path) -> list[Path]:
+    sources_dir = wiki_dir / "sources"
+    if not sources_dir.exists():
+        return []
+    return sorted(sources_dir.rglob("*.md"))
+
+
 def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
     snapshot = git_snapshot(paths.raw_dir)
     metadata = read_sync_metadata(paths.wiki_dir)
-    baseline_commit_recommended = not snapshot["has_commits"]
+    source_map = read_source_map(paths.wiki_dir)
+    source_pages = existing_source_pages(paths.wiki_dir)
+    baseline_commit_recommended = snapshot["git_enabled"] and not snapshot["has_commits"]
     follow_up_actions: list[str] = []
     if metadata is None:
         needs_sync = True
@@ -311,9 +331,16 @@ def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
         reasons = []
         if metadata.get("raw_head") != snapshot["head"]:
             reasons.append("Raw git HEAD differs from last recorded sync.")
-        if snapshot["dirty"]:
+        if snapshot["git_enabled"] and snapshot["dirty"]:
             reasons.append("Raw repository has uncommitted changes.")
         needs_sync = bool(reasons)
+
+    if snapshot["changed_files"] and not source_pages:
+        reasons.append("Wiki source pages are missing for the current raw material.")
+        needs_sync = True
+    elif source_map and not source_pages:
+        reasons.append("Source map exists but generated wiki source pages are missing.")
+        needs_sync = True
 
     if baseline_commit_recommended:
         reasons.append(
@@ -322,6 +349,13 @@ def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
         )
         follow_up_actions.append(
             "After the wiki reflects the current raw tree, create the first commit in WIKI_RAW_DIR."
+        )
+    if not snapshot["git_enabled"]:
+        reasons.append(
+            "Raw directory is not a git repository. Sync can still build the wiki, but freshness tracking is limited to helper metadata."
+        )
+        follow_up_actions.append(
+            "If you want future freshness checks to use git history, run python3 scripts/raw_git_init.py after the initial wiki bootstrap."
         )
 
     return {

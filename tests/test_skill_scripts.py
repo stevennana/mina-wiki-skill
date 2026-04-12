@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -192,6 +193,200 @@ class StevenWikiSkillTests(unittest.TestCase):
         self.assertTrue(status["baseline_commit_recommended"])
         self.assertTrue(status["follow_up_actions"])
         self.assertIn("no baseline commit yet", " ".join(status["reasons"]).lower())
+
+    def test_git_snapshot_handles_non_git_raw_directory(self) -> None:
+        plain_root = self.root / "plain-raw"
+        plain_root.mkdir()
+        (plain_root / "topic.md").write_text("plain raw\n", encoding="utf-8")
+
+        snapshot = wiki_common.git_snapshot(plain_root)
+
+        self.assertFalse(snapshot["git_enabled"])
+        self.assertFalse(snapshot["has_commits"])
+        self.assertEqual(snapshot["short_head"], "no-git")
+        self.assertEqual(snapshot["changed_files"], ["topic.md"])
+
+    def test_compute_sync_status_handles_non_git_raw_directory(self) -> None:
+        plain_root = self.root / "plain-sync"
+        plain_root.mkdir()
+        (plain_root / "topic.md").write_text("plain raw\n", encoding="utf-8")
+        paths = wiki_common.ResolvedPaths(
+            raw_dir=plain_root.resolve(),
+            wiki_dir=self.wiki_dir.resolve(),
+            config_path=None,
+            source="test",
+        )
+
+        status = wiki_common.compute_sync_status(paths)
+
+        self.assertTrue(status["needs_sync"])
+        self.assertFalse(status["baseline_commit_recommended"])
+        self.assertIn("not a git repository", " ".join(status["reasons"]).lower())
+        self.assertIn("raw_git_init.py", " ".join(status["follow_up_actions"]))
+
+    def test_compute_sync_status_detects_cleared_wiki_with_stale_metadata(self) -> None:
+        paths = wiki_common.resolve_paths()
+        snapshot = wiki_common.git_snapshot(paths.raw_dir)
+        wiki_common.ensure_wiki_structure(paths.wiki_dir)
+        wiki_common.write_sync_metadata(paths.wiki_dir, snapshot, "sync")
+        wiki_common.write_source_map(paths.wiki_dir, {"source.md": "sources/source"})
+
+        status = wiki_common.compute_sync_status(paths)
+
+        self.assertTrue(status["needs_sync"])
+        self.assertIn("source pages are missing", " ".join(status["reasons"]).lower())
+
+    def test_raw_git_init_script_bootstraps_plain_directory(self) -> None:
+        plain_root = self.root / "plain-init"
+        plain_root.mkdir()
+        (plain_root / "topic.md").write_text("plain raw\n", encoding="utf-8")
+        os.environ["WIKI_RAW_DIR"] = str(plain_root)
+
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "raw_git_init.py")],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["created_repo"])
+        self.assertFalse(payload["created_initial_commit"])
+        self.assertTrue((plain_root / ".git").exists())
+        self.assertFalse(payload["git"]["has_commits"])
+
+    def test_raw_git_init_script_can_create_initial_commit(self) -> None:
+        plain_root = self.root / "plain-init-commit"
+        plain_root.mkdir()
+        (plain_root / "topic.md").write_text("plain raw\n", encoding="utf-8")
+        os.environ["WIKI_RAW_DIR"] = str(plain_root)
+
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "raw_git_init.py"), "--initial-commit"],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["created_repo"])
+        self.assertTrue(payload["created_initial_commit"])
+        self.assertTrue(payload["git"]["has_commits"])
+
+    def test_wiki_quality_audit_flags_placeholder_pages(self) -> None:
+        wiki_common.ensure_wiki_structure(self.wiki_dir)
+        (self.wiki_dir / "concepts" / "draft.md").write_text(
+            "---\n"
+            "type: concept\n"
+            "title: Draft\n"
+            "---\n\n"
+            "## Summary\n\n"
+            "Auto-maintained concept page for Draft.\n",
+            encoding="utf-8",
+        )
+        (self.wiki_dir / "index.md").write_text(
+            "# Index\n\n## Concepts\n- [[concepts/draft]]: Auto-maintained concept page for Draft.\n",
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_quality_audit.py")],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertIn("concepts/draft.md", payload["placeholder_pages"])
+        self.assertFalse(payload["passes_editorial_gate"])
+        self.assertTrue(payload["index_has_placeholders"])
+
+    def test_wiki_git_init_script_bootstraps_plain_directory(self) -> None:
+        git_dir = self.wiki_dir / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
+
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_git_init.py")],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["created_repo"])
+        self.assertFalse(payload["created_initial_commit"])
+        self.assertTrue((self.wiki_dir / ".git").exists())
+
+    def test_wiki_git_init_script_can_create_initial_commit(self) -> None:
+        git_dir = self.wiki_dir / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
+        (self.wiki_dir / "note.md").write_text("hello wiki\n", encoding="utf-8")
+
+        completed = subprocess.run(
+            ["python3", str(REPO_ROOT / "scripts" / "wiki_git_init.py"), "--initial-commit"],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["created_repo"])
+        self.assertTrue(payload["created_initial_commit"])
+        self.assertEqual(payload["git"]["dirty"], False)
+
+    def test_wiki_commit_batch_script_commits_paths(self) -> None:
+        git(self.wiki_dir, "init")
+        git(self.wiki_dir, "config", "user.name", "Wiki User")
+        git(self.wiki_dir, "config", "user.email", "wiki@example.com")
+        (self.wiki_dir / "index.md").write_text("# Index\n\n", encoding="utf-8")
+        git(self.wiki_dir, "add", "index.md")
+        git(self.wiki_dir, "commit", "-m", "seed wiki")
+        (self.wiki_dir / "concepts").mkdir(exist_ok=True)
+        (self.wiki_dir / "concepts" / "draft.md").write_text("Draft\n", encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                "python3",
+                str(REPO_ROOT / "scripts" / "wiki_commit_batch.py"),
+                "--message",
+                "Commit wiki batch",
+                "--paths",
+                "concepts/draft.md",
+            ],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["committed"])
+        self.assertEqual(git(self.wiki_dir, "log", "-1", "--pretty=%s"), "Commit wiki batch")
 
     def test_extract_title_and_summary_filters_boilerplate(self) -> None:
         raw_text = (
