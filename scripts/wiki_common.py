@@ -26,15 +26,30 @@ WIKI_LOCAL_TAXONOMY = "taxonomy.json"
 SPECIAL_ROOT_SECTIONS = ("sources", "analyses", "legacy")
 
 FALLBACK_TAXONOMY: dict[str, Any] = {
-    "root_sections": ["topics", "analyses", "sources", "legacy"],
+    "root_sections": [
+        "concepts",
+        "entities",
+        "architecture",
+        "domains",
+        "systems",
+        "playbooks",
+        "analyses",
+        "sources",
+        "legacy",
+    ],
     "section_descriptions": {
-        "topics": "Maintained project knowledge organized into stable topics.",
+        "concepts": "General concepts, ideas, and durable knowledge pages.",
+        "entities": "Important people, services, components, and named things.",
+        "architecture": "System structure, design decisions, and technical topology.",
+        "domains": "Business or product domains and their key boundaries.",
+        "systems": "Operational systems, integrations, and platform surfaces.",
+        "playbooks": "Procedures, workflows, runbooks, and repeatable operating guides.",
         "analyses": "Syntheses, troubleshooting notes, and filed answers.",
         "sources": "Raw-source summaries backing the maintained wiki.",
         "legacy": "Archived material retained during restructures.",
     },
     "children": {},
-    "default_destination": "topics",
+    "default_destination": "concepts",
     "routing_rules": [],
 }
 
@@ -269,7 +284,7 @@ def _normalize_taxonomy(raw: dict[str, Any] | None) -> dict[str, Any]:
         children[parent_key] = child_list
     base["children"] = children
 
-    default_destination = _normalize_path_fragment(str(base.get("default_destination") or "topics"))
+    default_destination = _normalize_path_fragment(str(base.get("default_destination") or "concepts"))
     if default_destination not in roots and default_destination.split("/")[0] not in roots:
         roots.append(default_destination.split("/")[0])
         descriptions.setdefault(default_destination.split("/")[0], "Maintained wiki section.")
@@ -773,10 +788,21 @@ def read_wiki_page(path: Path) -> tuple[dict[str, Any], str]:
     return parse_frontmatter(text)
 
 
-def write_wiki_page(path: Path, metadata: dict[str, Any], body: str) -> None:
+def write_wiki_page(path: Path, metadata: dict[str, Any], body: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = dump_frontmatter(metadata) + "\n\n" + body.strip() + "\n"
+    normalized_body = body.strip()
+    if path.exists():
+        existing_metadata, existing_body = read_wiki_page(path)
+        if existing_metadata == metadata and existing_body.strip() == normalized_body:
+            return False
+        comparable_metadata = dict(metadata)
+        if "last_reviewed" in comparable_metadata and "last_reviewed" in existing_metadata:
+            comparable_metadata["last_reviewed"] = existing_metadata["last_reviewed"]
+            if comparable_metadata == existing_metadata and existing_body.strip() == normalized_body:
+                return False
+    content = dump_frontmatter(metadata) + "\n\n" + normalized_body + "\n"
     path.write_text(content, encoding="utf-8")
+    return True
 
 
 def iter_wiki_pages(wiki_dir: Path, include_indexes: bool = True) -> list[Path]:

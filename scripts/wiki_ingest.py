@@ -85,6 +85,7 @@ def upsert_leaf_page(page_path: Path, title: str, source_ref: str, summary: str)
         changed = True
 
     if changed:
+        metadata["last_reviewed"] = now_iso_date()
         write_wiki_page(page_path, metadata, body)
     return changed
 
@@ -148,6 +149,7 @@ def ingest_one(paths, raw_input: str, taxonomy: dict[str, object] | None = None)
             "last_reviewed": existing_metadata.get("last_reviewed", now_iso_date()),
         }
         if existing_metadata != metadata or existing_body.strip() != new_body.strip():
+            metadata["last_reviewed"] = now_iso_date()
             write_wiki_page(source_path, metadata, new_body)
             touched.append(str(source_path.relative_to(paths.wiki_dir)))
     else:

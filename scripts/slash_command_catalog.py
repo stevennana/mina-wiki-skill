@@ -62,7 +62,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Repair nearby links when the update changes references and append to `log.md`.",
         ),
         examples=(
-            "/wiki-update-page topics/example-topic.md refine the explanation and add source coverage",
+            "/wiki-update-page concepts/example-topic.md refine the explanation and add source coverage",
         ),
     ),
     SlashCommand(
@@ -108,7 +108,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Include operation name and touched pages.",
             "Update sync metadata only when the wiki reflects current raw state.",
         ),
-        examples=("/wiki-log ingest sources/example-source.md topics/example-topic.md",),
+        examples=("/wiki-log ingest sources/example-source.md concepts/example-topic.md",),
     ),
     SlashCommand(
         name="wiki-benchmark",

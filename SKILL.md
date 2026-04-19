@@ -17,7 +17,7 @@ The maintained wiki always includes:
 - `legacy/` for archived material
 - project-defined maintained sections and nested indexes
 
-Section names and hierarchy are not hardcoded to a specific domain. They come from project config or wiki-local taxonomy metadata when available. If no taxonomy is configured, the skill falls back to a minimal generic structure with `topics/`, `analyses/`, `sources/`, and `legacy/`.
+Section names and hierarchy are not hardcoded to a specific domain. They come from project config or wiki-local taxonomy metadata when available. If no taxonomy is configured, the skill falls back to a broad generic structure with `concepts/`, `entities/`, `architecture/`, `domains/`, `systems/`, `playbooks/`, `analyses/`, `sources/`, and `legacy/`.
 
 ## Required Working Loop
 
@@ -81,7 +81,7 @@ When maintaining the wiki:
 - The skill is general-purpose. It must not hardcode one project's domain taxonomy as the global default.
 - Project-specific hierarchy belongs in config or wiki-local taxonomy metadata.
 - If taxonomy config is present, bootstrap, ingest, sync, migration, and index rebuild must all follow it.
-- If taxonomy config is absent, use the minimal fallback structure rather than inventing domain-specific section names.
+- If taxonomy config is absent, use the broad fallback structure rather than inventing domain-specific section names.
 
 ## Query Workflow
 

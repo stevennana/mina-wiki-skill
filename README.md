@@ -72,7 +72,7 @@ The agent then:
 1. checks sync state
 2. reads raw files
 3. creates or updates `sources/` summaries
-4. routes content into maintained topic pages using taxonomy or fallback structure
+4. routes content into maintained pages using taxonomy or fallback structure
 5. rebuilds indexes
 6. runs quality checks
 7. improves weak pages
@@ -84,9 +84,20 @@ At minimum, the wiki looks like this:
 ```text
 WIKI_DIR/
   index.md
-  topics/
+  concepts/
     index.md
-    <topic>.md
+    <concept>.md
+  entities/
+    index.md
+    <entity>.md
+  architecture/
+    index.md
+  domains/
+    index.md
+  systems/
+    index.md
+  playbooks/
+    index.md
   analyses/
     index.md
     <analysis>.md
@@ -456,7 +467,7 @@ python3 scripts/wiki_benchmark.py --questions questions.json --output-json /tmp/
 ```bash
 python3 scripts/log_operation.py \
   --operation ingest \
-  --touched sources/example-source.md topics/example-topic.md \
+  --touched sources/example-source.md concepts/example-topic.md \
   --update-sync-marker
 
 python3 scripts/wiki_commit_batch.py --message "Commit wiki batch"

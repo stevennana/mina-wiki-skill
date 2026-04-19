@@ -23,7 +23,7 @@ Example:
 
 - read the raw source relative to `WIKI_RAW_DIR`
 - create or update a page in `sources/`
-- update the maintained topic page using configured taxonomy or fallback destination
+- update the maintained page using configured taxonomy or fallback destination
 - rebuild indexes and append to `log.md`
 
 Example:
@@ -41,7 +41,7 @@ Example:
 Example:
 
 ```text
-/wiki-update-page topics/example-topic.md refine the explanation and add source coverage
+/wiki-update-page concepts/example-topic.md refine the explanation and add source coverage
 ```
 
 ## `/wiki-query`
@@ -79,5 +79,5 @@ Example:
 Example:
 
 ```text
-/wiki-log ingest sources/example-source.md topics/example-topic.md
+/wiki-log ingest sources/example-source.md concepts/example-topic.md
 ```

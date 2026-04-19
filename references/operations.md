@@ -46,7 +46,7 @@ Use:
 ```bash
 python3 scripts/raw_git_status.py
 python3 scripts/wiki_sync.py --update-sync-marker
-python3 scripts/log_operation.py --operation ingest --update-sync-marker --touched sources/foo.md topics/foo.md
+python3 scripts/log_operation.py --operation ingest --update-sync-marker --touched sources/foo.md concepts/foo.md
 ```
 
 If an existing wiki still uses flat `concepts/` or `entities/`, run:

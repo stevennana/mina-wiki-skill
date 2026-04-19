@@ -87,9 +87,14 @@ class MinaWikiSkillTests(unittest.TestCase):
         payload = json.loads(completed.stdout)
         self.assertTrue(payload["ok"])
         self.assertTrue((self.wiki_dir / "index.md").exists())
-        self.assertTrue((self.wiki_dir / "topics" / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "concepts" / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "entities" / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "architecture" / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "domains" / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "systems" / "index.md").exists())
+        self.assertTrue((self.wiki_dir / "playbooks" / "index.md").exists())
         self.assertTrue((self.wiki_dir / "sources" / "index.md").exists())
-        self.assertIn("topics/index.md", payload["created"])
+        self.assertIn("concepts/index.md", payload["created"])
 
     def test_custom_taxonomy_is_used_for_bootstrap_and_ingest(self) -> None:
         self.write_config(
@@ -131,7 +136,7 @@ class MinaWikiSkillTests(unittest.TestCase):
     def test_wiki_query_can_save_analysis(self) -> None:
         self.run_script("scripts/wiki_ingest.py", "source.md")
         wiki_common.write_wiki_page(
-            self.wiki_dir / "topics" / "secondary-topic.md",
+            self.wiki_dir / "concepts" / "secondary-topic.md",
             {"type": "concept", "title": "Secondary Topic", "last_reviewed": "2026-04-19"},
             "## Summary\n\nA less relevant topic.\n",
         )
@@ -152,6 +157,26 @@ class MinaWikiSkillTests(unittest.TestCase):
         self.assertIn("top_score", payload)
         self.assertTrue(any("example-topic" in ref for ref in payload["citations"]))
         self.assertFalse(any("secondary-topic" == Path(ref).name for ref in payload["citations"]))
+
+    def test_write_wiki_page_preserves_last_reviewed_on_noop_update(self) -> None:
+        analysis_path = self.wiki_dir / "analyses" / "example-topic-answer.md"
+        original_metadata = {
+            "type": "analysis",
+            "title": "Example Topic Answer",
+            "last_reviewed": "2025-01-01",
+            "sources": ["concepts/example-topic"],
+        }
+        original_body = "## Summary\n\nExample answer.\n\n## Links\n\n- [[concepts/example-topic]]\n"
+        wiki_common.write_wiki_page(analysis_path, original_metadata, original_body)
+
+        updated_metadata = dict(original_metadata)
+        updated_metadata["last_reviewed"] = "2026-04-19"
+        wrote = wiki_common.write_wiki_page(analysis_path, updated_metadata, original_body)
+
+        self.assertFalse(wrote)
+        final_metadata, final_body = wiki_common.read_wiki_page(analysis_path)
+        self.assertEqual(final_metadata["last_reviewed"], "2025-01-01")
+        self.assertEqual(final_body, original_body)
 
     def test_wiki_benchmark_outputs_summary(self) -> None:
         self.run_script("scripts/wiki_ingest.py", "source.md")
@@ -217,7 +242,7 @@ class MinaWikiSkillTests(unittest.TestCase):
         wiki_common.ensure_wiki_structure(self.wiki_dir, taxonomy)
         (self.root / "unrelated.txt").write_text("leave me unstaged\n", encoding="utf-8")
         wiki_common.write_wiki_page(
-            self.wiki_dir / "topics" / "committed-topic.md",
+            self.wiki_dir / "concepts" / "committed-topic.md",
             {"type": "concept", "title": "Committed Topic", "last_reviewed": "2026-04-19"},
             "## Summary\n\nCommitted topic body.\n",
         )
@@ -226,7 +251,7 @@ class MinaWikiSkillTests(unittest.TestCase):
             "--message",
             "Commit wiki batch",
             "--paths",
-            "topics/committed-topic.md",
+            "concepts/committed-topic.md",
             check=False,
         )
         self.assertEqual(completed.returncode, 0)
@@ -242,12 +267,12 @@ class MinaWikiSkillTests(unittest.TestCase):
         taxonomy = wiki_common.resolve_taxonomy(wiki_common.resolve_paths())
         wiki_common.ensure_wiki_structure(self.wiki_dir, taxonomy)
         wiki_common.write_wiki_page(
-            self.wiki_dir / "topics" / "index.md",
-            {"type": "index", "title": "Topics", "last_reviewed": "2026-04-19"},
-            "## Summary\n\nAuto-maintained topics index.\n",
+            self.wiki_dir / "concepts" / "index.md",
+            {"type": "index", "title": "Concepts", "last_reviewed": "2026-04-19"},
+            "## Summary\n\nAuto-maintained concepts index.\n",
         )
         wiki_common.write_wiki_page(
-            self.wiki_dir / "topics" / "orphan.md",
+            self.wiki_dir / "concepts" / "orphan.md",
             {"type": "concept", "title": "Orphan", "last_reviewed": "2026-04-19", "sources": ["sources/missing"]},
             "## Summary\n\nAuto-maintained orphan page.\n\n- [[legacy/flat/concepts/old-topic]]\n",
         )
@@ -260,10 +285,10 @@ class MinaWikiSkillTests(unittest.TestCase):
         self.assertEqual(completed_apply.returncode, 2)
         applied_payload = json.loads(completed_apply.stdout)
         self.assertTrue(applied_payload["fixed_pages"])
-        _metadata, fixed_body = wiki_common.read_wiki_page(self.wiki_dir / "topics" / "orphan.md")
+        _metadata, fixed_body = wiki_common.read_wiki_page(self.wiki_dir / "concepts" / "orphan.md")
         self.assertIn("## Source Coverage", fixed_body)
         self.assertNotIn("[[legacy/flat/concepts/old-topic]]", fixed_body)
-        _index_meta, fixed_index_body = wiki_common.read_wiki_page(self.wiki_dir / "topics" / "index.md")
+        _index_meta, fixed_index_body = wiki_common.read_wiki_page(self.wiki_dir / "concepts" / "index.md")
         self.assertNotIn("Auto-maintained", fixed_index_body)
 
     def test_sync_cleanup_preserves_last_reviewed_on_automatic_source_removal(self) -> None:
@@ -275,7 +300,7 @@ class MinaWikiSkillTests(unittest.TestCase):
             {"type": "source", "title": "Source", "last_reviewed": "2026-04-19"},
             "## Summary\n\nRaw source summary.\n",
         )
-        maintained_path = self.wiki_dir / "topics" / "example-topic.md"
+        maintained_path = self.wiki_dir / "concepts" / "example-topic.md"
         wiki_common.write_wiki_page(
             maintained_path,
             {
@@ -329,14 +354,14 @@ class MinaWikiSkillTests(unittest.TestCase):
         taxonomy = wiki_common.resolve_taxonomy(wiki_common.resolve_paths())
         wiki_common.ensure_wiki_structure(self.wiki_dir, taxonomy)
         wiki_common.write_wiki_page(
-            self.wiki_dir / "topics" / "draft.md",
+            self.wiki_dir / "concepts" / "draft.md",
             {"type": "concept", "title": "Draft", "last_reviewed": "2026-04-19"},
             "## Summary\n\nAuto-maintained draft.\n",
         )
         completed = self.run_script("scripts/wiki_quality_audit.py", check=False)
         self.assertEqual(completed.returncode, 2)
         payload = json.loads(completed.stdout)
-        self.assertIn("topics/draft.md", payload["placeholder_pages"])
+        self.assertIn("concepts/draft.md", payload["placeholder_pages"])
 
     def test_slash_commands_reference_generic_paths(self) -> None:
         sync = next(command for command in COMMANDS if command.name == "wiki-sync")
