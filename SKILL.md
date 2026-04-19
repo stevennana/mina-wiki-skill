@@ -28,7 +28,7 @@ When the user asks for the wiki to be built, refreshed, upgraded, or maintained:
 3. read raw files one by one or in tight batches
 4. update `sources/` pages and the maintained topic pages
 5. rebuild indexes
-6. run lint and quality checks
+6. run lint, quality, and principle checks
 7. fix what the checks expose
 8. log the batch and update sync metadata when the wiki reflects current raw state
 
@@ -45,6 +45,8 @@ At session start:
 
 When `baseline_commit_recommended` is `true`, treat the run as initial bootstrap guidance. Finish the first useful sync, then create the first commit in `WIKI_RAW_DIR`.
 
+Raw may use its own dedicated git repository. The wiki should not create its own nested git repository; it should live inside and commit through the parent project repository.
+
 ## Mandatory Execution Order
 
 When maintaining the wiki:
@@ -58,8 +60,9 @@ When maintaining the wiki:
 7. `python3 scripts/wiki_index.py`
 8. `python3 scripts/wiki_quality_audit.py`
 9. `python3 scripts/wiki_lint.py`
-10. fix what the checks expose
-11. rerun the checks
+10. `python3 scripts/wiki_enforce_principles.py`
+11. fix what the checks expose
+12. rerun the checks
 
 ## Non-Negotiable Editing Rules
 
@@ -90,7 +93,15 @@ When the user asks a domain question:
 4. answer from the wiki
 5. if the answer is durable, save it under `analyses/` and log it
 
+The retrieval default is `index-first`. `sources/` is a fallback-only surface, not the first-pass browsing path.
+
 Do not browse raw first for ordinary domain questions unless the wiki is missing or stale.
+
+## Benchmarking
+
+- Use `python3 scripts/wiki_benchmark.py` with an external question set when you need to measure whether the maintained hierarchy is actually helping retrieval.
+- Favor benchmarks that measure `index -> section index -> leaf page` traversal rather than brute-force full-corpus scans.
+- Treat a benchmark regression as a wiki structure problem unless the query implementation changed.
 
 ## Quality Bar
 
@@ -105,3 +116,17 @@ Reject these failure modes:
 - unnecessary metadata churn from automatic sync steps
 
 The wiki is only healthy when maintained pages, source summaries, and indexes agree on the same configured structure.
+
+## Project Integration
+
+When this skill is adopted into another project, the receiving project's `AGENTS.md` or `CLAUDE.md` should establish these rules explicitly:
+
+- The wiki is the default project memory. Raw is ingestion input, not the first-pass browsing surface.
+- Query behavior is `index-first`, with `sources/` used only as fallback.
+- Raw may live in its own dedicated git repository.
+- The wiki must not initialize its own nested git repository.
+- Wiki changes must be committed through the parent project repository that contains `WIKI_DIR`.
+- Taxonomy belongs in project config or wiki-local metadata, not in the shared skill code.
+- Quality checks are part of normal operation, not optional cleanup.
+
+If the receiving project already has local operating rules, inject the wiki guidance as an additive section rather than replacing unrelated project instructions.

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import sys
 
-from wiki_common import ConfigError, compute_sync_status, resolve_paths, validate_paths
+from wiki_common import ConfigError, compute_sync_status, resolve_paths, resolve_taxonomy, validate_paths
 
 
 def main() -> int:
@@ -17,6 +17,18 @@ def main() -> int:
             print(json.dumps({"ok": False, "errors": errors}, indent=2))
             return 1
         status = compute_sync_status(paths)
+        taxonomy = resolve_taxonomy(paths)
+        recommended_steps = ["python3 scripts/wiki_sync_status.py"]
+        if status["needs_sync"]:
+            recommended_steps.append("python3 scripts/wiki_sync.py --update-sync-marker")
+        recommended_steps.extend(
+            [
+                "python3 scripts/wiki_index.py",
+                "python3 scripts/wiki_quality_audit.py",
+                "python3 scripts/wiki_lint.py",
+                "python3 scripts/wiki_enforce_principles.py",
+            ]
+        )
         payload = {
             "ok": True,
             "needs_sync": status["needs_sync"],
@@ -28,6 +40,9 @@ def main() -> int:
             "baseline_commit_recommended": status["baseline_commit_recommended"],
             "follow_up_actions": status["follow_up_actions"],
             "sync_metadata_path": status["sync_metadata_path"],
+            "taxonomy_roots": taxonomy["root_sections"],
+            "default_destination": taxonomy["default_destination"],
+            "recommended_steps": recommended_steps,
         }
         print(json.dumps(payload, indent=2))
         return 0

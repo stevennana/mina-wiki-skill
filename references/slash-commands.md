@@ -48,6 +48,7 @@ Example:
 
 - read `index.md` first
 - read only the relevant section indexes and leaf pages
+- keep `sources/` as fallback only unless the maintained hierarchy is insufficient
 - answer with citations to wiki pages
 - if the user asks to save the result, write it to `analyses/` and log the operation
 
@@ -62,6 +63,12 @@ Example:
 - identify orphan maintained pages
 - find weak backlinks, contradiction candidates, and missing summaries
 - treat the output as an editing queue
+
+## `/wiki-benchmark`
+
+- run `python3 scripts/wiki_benchmark.py` with an external question set
+- measure elapsed time, matched pages, cited context, and sources fallback usage
+- use it to validate whether the hierarchy helps real retrieval
 
 ## `/wiki-log`
 

@@ -36,6 +36,9 @@ def main() -> int:
         missing_summary: list[str] = []
         missing_frontmatter: list[str] = []
         contradiction_candidates: list[str] = []
+        weak_indexes: list[str] = []
+        legacy_leakage: list[str] = []
+        sources_only_indexes: list[str] = []
 
         for ref, page in refs.items():
             metadata, body = read_wiki_page(page)
@@ -49,6 +52,15 @@ def main() -> int:
             lower_body = body.lower()
             if "contradict" in lower_body or "however" in lower_body or "but " in lower_body:
                 contradiction_candidates.append(ref)
+            if is_index_ref(ref):
+                live_links = [link for link in extract_wiki_links(body) if not is_source_ref(link) and not is_legacy_ref(link)]
+                if not live_links:
+                    weak_indexes.append(ref)
+                links = extract_wiki_links(body)
+                if links and all(is_source_ref(link) for link in links):
+                    sources_only_indexes.append(ref)
+            elif is_legacy_ref(ref) and inbound.get(ref, 0) > 0:
+                legacy_leakage.append(ref)
 
         orphan_pages = sorted(
             ref
@@ -75,6 +87,9 @@ def main() -> int:
             "missing_summary": sorted(missing_summary),
             "missing_frontmatter": sorted(missing_frontmatter),
             "contradiction_candidates": sorted(set(contradiction_candidates)),
+            "weak_indexes": sorted(set(weak_indexes)),
+            "sources_only_indexes": sorted(set(sources_only_indexes)),
+            "legacy_leakage": sorted(set(legacy_leakage)),
             "stale_pages": sorted(stale_pages),
             "sync_needs_attention": sync_status["needs_sync"],
             "sync_reasons": sync_status["reasons"],

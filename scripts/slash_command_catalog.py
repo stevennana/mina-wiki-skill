@@ -83,6 +83,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
         usage="/wiki-query <question>",
         behavior=(
             "Read `index.md` first, then only the relevant pages.",
+            "Keep `sources/` as fallback only unless the maintained hierarchy is insufficient.",
             "Answer with citations to wiki pages.",
             "If the user asks to save the result, write it to `analyses/` and log the operation.",
         ),
@@ -108,5 +109,16 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Update sync metadata only when the wiki reflects current raw state.",
         ),
         examples=("/wiki-log ingest sources/example-source.md topics/example-topic.md",),
+    ),
+    SlashCommand(
+        name="wiki-benchmark",
+        summary="Benchmark retrieval efficiency with an external question set.",
+        usage="/wiki-benchmark <questions.json|csv>",
+        behavior=(
+            "Run `python3 scripts/wiki_benchmark.py` with an external question set.",
+            "Measure elapsed time, matched pages, cited context volume, and sources fallback usage.",
+            "Use the results to validate whether the current hierarchy improves retrieval.",
+        ),
+        examples=("/wiki-benchmark questions.json",),
     ),
 )

@@ -9,6 +9,7 @@ Run `python3 scripts/wiki_sync_status.py` first.
 - If accepted, inspect the changed raw files, update affected wiki pages, rebuild root and section indexes, append to `log.md`, and update the sync marker.
 - If `baseline_commit_recommended` is `true`, treat the run as initial bootstrap. Finish the first useful wiki sync, then create the first commit in `WIKI_RAW_DIR`.
 - If raw is not a git repo yet, bootstrap the wiki first, then run `python3 scripts/raw_git_init.py` or `python3 scripts/raw_git_init.py --initial-commit`.
+- Raw may use its own dedicated git repository. The wiki should not initialize a nested repo; it should commit through the parent project git repository.
 
 The required loop is:
 
@@ -16,7 +17,7 @@ The required loop is:
 2. read raw files one by one
 3. editorially update the wiki after each file or small batch
 4. rebuild indexes
-5. run quality checks
+5. run quality and principle checks
 6. fix the failures
 7. repeat until the touched area is no longer scaffold-quality
 
@@ -34,6 +35,7 @@ Recommended flow:
 8. Run quality checks:
    `python3 scripts/wiki_quality_audit.py`
    `python3 scripts/wiki_lint.py`
+   `python3 scripts/wiki_enforce_principles.py`
 9. Rewrite weak generated content before considering the ingest complete.
 10. Append a log entry.
 11. Commit the coherent wiki batch with `python3 scripts/wiki_commit_batch.py --message "..."`
@@ -59,6 +61,8 @@ Then rebuild indexes and lint again.
 
 Start from `index.md`, then read the relevant section indexes and leaf pages. Answer from the wiki first. If the result is valuable long-term, file it back into `analyses/` and log it with `--operation query`.
 
+Default query behavior should be `index-first`. `sources/` is fallback-only unless the maintained hierarchy cannot answer.
+
 ## Lint
 
 Look for:
@@ -75,9 +79,14 @@ Also run:
 ```bash
 python3 scripts/wiki_quality_audit.py
 python3 scripts/wiki_lint.py
+python3 scripts/wiki_enforce_principles.py
 ```
 
 Treat failed checks as an editing queue, not as a final report.
+
+## Benchmark
+
+Use `python3 scripts/wiki_benchmark.py` with an external question set when you want to measure whether the maintained hierarchy is producing efficient retrieval. Compare context volume and fallback usage, not just answer presence.
 
 ## Taxonomy
 

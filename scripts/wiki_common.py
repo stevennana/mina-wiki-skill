@@ -356,8 +356,22 @@ def validate_paths(paths: ResolvedPaths) -> list[str]:
     return errors
 
 
+def git_toplevel(path: Path) -> Path | None:
+    try:
+        output = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+    return Path(output).resolve() if output else None
+
+
 def is_git_repo(path: Path) -> bool:
-    return (path / ".git").exists()
+    return git_toplevel(path) is not None
 
 
 def run_git(path: Path, args: list[str]) -> str:

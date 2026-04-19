@@ -9,7 +9,9 @@ from pathlib import Path
 
 from wiki_common import (
     ConfigError,
+    extract_wiki_links,
     is_index_ref,
+    is_legacy_ref,
     is_source_ref,
     iter_wiki_pages,
     read_wiki_page,
@@ -34,6 +36,8 @@ def build_audit(wiki_dir: Path) -> dict[str, object]:
     short_leaf_pages: list[str] = []
     analyses_count = 0
     index_has_placeholders = False
+    thin_indexes: list[str] = []
+    legacy_live_links: list[str] = []
 
     index_path = wiki_dir / "index.md"
     if index_path.exists():
@@ -54,13 +58,20 @@ def build_audit(wiki_dir: Path) -> dict[str, object]:
         count = line_count(page)
         if ref.startswith("analyses/") and not is_index_ref(ref):
             analyses_count += 1
+        elif is_index_ref(ref) and count < 12:
+            thin_indexes.append(rel_str)
         elif not is_index_ref(ref) and not is_source_ref(ref) and count < 15:
             short_leaf_pages.append(rel_str)
+        if not is_legacy_ref(ref):
+            if any(link.startswith("legacy/") for link in extract_wiki_links(body)):
+                legacy_live_links.append(rel_str)
 
     return {
         "placeholder_pages": sorted(placeholder_pages),
         "malformed_titles": sorted(malformed_titles),
         "short_leaf_pages": sorted(short_leaf_pages),
+        "thin_indexes": sorted(thin_indexes),
+        "legacy_live_links": sorted(legacy_live_links),
         "analyses_count": analyses_count,
         "index_has_placeholders": index_has_placeholders,
         "passes_editorial_gate": not any(
@@ -68,6 +79,8 @@ def build_audit(wiki_dir: Path) -> dict[str, object]:
                 placeholder_pages,
                 malformed_titles,
                 short_leaf_pages,
+                thin_indexes,
+                legacy_live_links,
                 analyses_count == 0,
                 index_has_placeholders,
             ]

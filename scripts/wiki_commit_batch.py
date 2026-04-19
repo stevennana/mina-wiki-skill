@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Commit a meaningful wiki batch in WIKI_DIR."""
+"""Commit a meaningful wiki batch using the project-level git repository."""
 
 from __future__ import annotations
 
@@ -7,8 +7,9 @@ import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 
-from wiki_common import ConfigError, is_git_repo, resolve_paths, validate_paths
+from wiki_common import ConfigError, git_toplevel, resolve_paths, safe_relative_to, validate_paths
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,15 +19,15 @@ def parse_args() -> argparse.Namespace:
         "--paths",
         nargs="*",
         default=[],
-        help="Wiki-relative files to stage. If omitted, stages all changes.",
+        help="Wiki-relative files to stage. If omitted, stages the full wiki directory.",
     )
     return parser.parse_args()
 
 
-def run_git(wiki_dir: str, *args: str) -> str:
+def run_git(repo_root: str, *args: str) -> str:
     completed = subprocess.run(
         ["git", *args],
-        cwd=wiki_dir,
+        cwd=repo_root,
         check=True,
         capture_output=True,
         text=True,
@@ -34,7 +35,7 @@ def run_git(wiki_dir: str, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def run_git_commit(wiki_dir: str, message: str) -> None:
+def run_git_commit(repo_root: str, message: str) -> None:
     subprocess.run(
         [
             "git",
@@ -46,7 +47,7 @@ def run_git_commit(wiki_dir: str, message: str) -> None:
             "-m",
             message,
         ],
-        cwd=wiki_dir,
+        cwd=repo_root,
         check=True,
         capture_output=True,
         text=True,
@@ -61,24 +62,39 @@ def main() -> int:
         if errors:
             print(json.dumps({"ok": False, "errors": errors}, indent=2))
             return 1
-        if not is_git_repo(paths.wiki_dir):
-            raise ConfigError(f"Wiki directory is not a git repository: {paths.wiki_dir}")
 
+        repo_root = git_toplevel(paths.wiki_dir)
+        if repo_root is None:
+            raise ConfigError(
+                "WIKI_DIR is not inside a git repository. Commit wiki changes through the parent project git repository."
+            )
+
+        wiki_dir_relative = safe_relative_to(paths.wiki_dir, repo_root)
         if args.paths:
-            run_git(str(paths.wiki_dir), "add", *args.paths)
+            stage_paths = [str((wiki_dir_relative / Path(path)).as_posix()) for path in args.paths]
         else:
-            run_git(str(paths.wiki_dir), "add", ".")
+            stage_paths = [str(wiki_dir_relative.as_posix())]
 
-        status_short = run_git(str(paths.wiki_dir), "status", "--short")
+        run_git(str(repo_root), "add", *stage_paths)
+
+        status_short = run_git(str(repo_root), "status", "--short")
         if not status_short:
             print(json.dumps({"ok": True, "committed": False, "message": "No wiki changes to commit."}, indent=2))
             return 0
 
-        run_git_commit(str(paths.wiki_dir), args.message)
-        head = run_git(str(paths.wiki_dir), "rev-parse", "HEAD")
+        run_git_commit(str(repo_root), args.message)
+        head = run_git(str(repo_root), "rev-parse", "HEAD")
         print(
             json.dumps(
-                {"ok": True, "committed": True, "message": args.message, "head": head, "short_head": head[:7]},
+                {
+                    "ok": True,
+                    "committed": True,
+                    "message": args.message,
+                    "head": head,
+                    "short_head": head[:7],
+                    "repo_root": str(repo_root),
+                    "staged_paths": stage_paths,
+                },
                 indent=2,
             )
         )
