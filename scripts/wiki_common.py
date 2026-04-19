@@ -8,20 +8,36 @@ import os
 import re
 import subprocess
 import unicodedata
-from html import unescape
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 from typing import Any
 
 
 CONFIG_ENV_VAR = "MINA_WIKI_CONFIG"
 LEGACY_CONFIG_ENV_VAR = "STEVEN_WIKI_CONFIG"
+TAXONOMY_ENV_VAR = "WIKI_TAXONOMY_CONFIG"
 DEFAULT_CONFIG_NAME = ".mina-wiki.json"
 SYNC_METADATA_DIR = ".mina-wiki"
 SYNC_METADATA_NAME = "last_sync.json"
 SOURCE_MAP_NAME = "source_map.json"
-WIKI_PAGE_DIRS = ("sources", "entities", "concepts", "analyses")
+WIKI_LOCAL_TAXONOMY = "taxonomy.json"
+SPECIAL_ROOT_SECTIONS = ("sources", "analyses", "legacy")
+
+FALLBACK_TAXONOMY: dict[str, Any] = {
+    "root_sections": ["topics", "analyses", "sources", "legacy"],
+    "section_descriptions": {
+        "topics": "Maintained project knowledge organized into stable topics.",
+        "analyses": "Syntheses, troubleshooting notes, and filed answers.",
+        "sources": "Raw-source summaries backing the maintained wiki.",
+        "legacy": "Archived material retained during restructures.",
+    },
+    "children": {},
+    "default_destination": "topics",
+    "routing_rules": [],
+}
+
 STOPWORDS = {
     "a",
     "an",
@@ -127,11 +143,6 @@ GENERIC_TITLE_PREFIXES = {
     "using",
     "what",
 }
-GENERIC_CONCEPT_LABELS = {
-    "api developer guide",
-    "api developer online ref documentation",
-    "docs solace com",
-}
 
 
 class ConfigError(RuntimeError):
@@ -169,6 +180,12 @@ def _load_json(path: Path) -> dict[str, Any]:
         raise ConfigError(f"Config file is not valid JSON: {path}") from exc
 
 
+def _load_optional_json(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.exists():
+        return None
+    return _load_json(path)
+
+
 def resolve_paths(start_dir: Path | None = None) -> ResolvedPaths:
     raw_env = os.environ.get("WIKI_RAW_DIR")
     wiki_env = os.environ.get("WIKI_DIR")
@@ -191,6 +208,134 @@ def resolve_paths(start_dir: Path | None = None) -> ResolvedPaths:
         config_path=config_path,
         source=source,
     )
+
+
+def read_project_config(paths: ResolvedPaths | None = None, start_dir: Path | None = None) -> dict[str, Any]:
+    if paths and paths.config_path and paths.config_path.exists():
+        return _load_json(paths.config_path)
+    config_path = discover_config(start_dir)
+    if config_path and config_path.exists():
+        return _load_json(config_path)
+    return {}
+
+
+def _normalize_path_fragment(value: str) -> str:
+    cleaned = value.strip().strip("/")
+    cleaned = cleaned.replace("\\", "/")
+    cleaned = re.sub(r"/+", "/", cleaned)
+    if cleaned.startswith("."):
+        raise ConfigError(f"Invalid taxonomy path: {value}")
+    return cleaned
+
+
+def _normalize_taxonomy(raw: dict[str, Any] | None) -> dict[str, Any]:
+    base = dict(FALLBACK_TAXONOMY)
+    base["section_descriptions"] = dict(FALLBACK_TAXONOMY["section_descriptions"])
+    base["children"] = {}
+    base["routing_rules"] = []
+    if raw:
+        for key, value in raw.items():
+            base[key] = value
+
+    roots = []
+    for section in base.get("root_sections", []):
+        normalized = _normalize_path_fragment(str(section))
+        if normalized and normalized not in roots:
+            roots.append(normalized)
+    for required in SPECIAL_ROOT_SECTIONS:
+        if required not in roots:
+            roots.append(required)
+    if not roots:
+        roots = list(FALLBACK_TAXONOMY["root_sections"])
+    base["root_sections"] = roots
+
+    descriptions: dict[str, str] = {}
+    for key, value in dict(base.get("section_descriptions", {})).items():
+        descriptions[_normalize_path_fragment(str(key))] = str(value).strip()
+    for root in roots:
+        descriptions.setdefault(root, f"Maintained wiki section for {root.replace('-', ' ')}.")
+    base["section_descriptions"] = descriptions
+
+    children: dict[str, list[str]] = {}
+    for parent, items in dict(base.get("children", {})).items():
+        parent_key = _normalize_path_fragment(str(parent))
+        child_list: list[str] = []
+        for item in items or []:
+            child_name = _normalize_path_fragment(str(item))
+            if "/" in child_name:
+                raise ConfigError("taxonomy.children values must be child directory names, not nested paths.")
+            if child_name not in child_list:
+                child_list.append(child_name)
+        children[parent_key] = child_list
+    base["children"] = children
+
+    default_destination = _normalize_path_fragment(str(base.get("default_destination") or "topics"))
+    if default_destination not in roots and default_destination.split("/")[0] not in roots:
+        roots.append(default_destination.split("/")[0])
+        descriptions.setdefault(default_destination.split("/")[0], "Maintained wiki section.")
+    base["default_destination"] = default_destination
+    base["root_sections"] = roots
+
+    rules: list[dict[str, str]] = []
+    for item in base.get("routing_rules", []) or []:
+        if not isinstance(item, dict):
+            continue
+        pattern = str(item.get("pattern", "")).strip()
+        destination = _normalize_path_fragment(str(item.get("destination", "")).strip())
+        if not pattern or not destination:
+            continue
+        match = str(item.get("match", "any")).strip().lower()
+        if match not in {"title", "path", "content", "any"}:
+            raise ConfigError(f"Invalid routing rule match target: {match}")
+        rules.append({"pattern": pattern, "destination": destination, "match": match})
+    base["routing_rules"] = rules
+    return base
+
+
+def resolve_taxonomy(paths: ResolvedPaths | None = None) -> dict[str, Any]:
+    paths = paths or resolve_paths()
+    config = read_project_config(paths)
+
+    taxonomy_path_env = os.environ.get(TAXONOMY_ENV_VAR)
+    if taxonomy_path_env:
+        return _normalize_taxonomy(_load_json(Path(taxonomy_path_env).expanduser().resolve()))
+
+    inline_taxonomy = config.get("taxonomy")
+    if isinstance(inline_taxonomy, dict):
+        return _normalize_taxonomy(inline_taxonomy)
+
+    taxonomy_config_path = config.get("taxonomy_config")
+    if taxonomy_config_path:
+        return _normalize_taxonomy(_load_json(Path(str(taxonomy_config_path)).expanduser().resolve()))
+
+    local_taxonomy_path = paths.wiki_dir / SYNC_METADATA_DIR / WIKI_LOCAL_TAXONOMY
+    local_taxonomy = _load_optional_json(local_taxonomy_path)
+    if local_taxonomy:
+        return _normalize_taxonomy(local_taxonomy)
+
+    return _normalize_taxonomy(None)
+
+
+def taxonomy_directory_paths(taxonomy: dict[str, Any]) -> list[str]:
+    seen: list[str] = []
+    queue = list(taxonomy["root_sections"])
+    while queue:
+        current = queue.pop(0)
+        current = _normalize_path_fragment(current)
+        if current in seen:
+            continue
+        seen.append(current)
+        for child in taxonomy.get("children", {}).get(current, []):
+            queue.append(f"{current}/{child}")
+    return seen
+
+
+def write_taxonomy_metadata(wiki_dir: Path, taxonomy: dict[str, Any]) -> Path:
+    metadata_dir = wiki_dir / SYNC_METADATA_DIR
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    path = metadata_dir / WIKI_LOCAL_TAXONOMY
+    path.write_text(json.dumps(taxonomy, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
 
 
 def validate_paths(paths: ResolvedPaths) -> list[str]:
@@ -311,11 +456,15 @@ def write_source_map(wiki_dir: Path, mapping: dict[str, str]) -> Path:
     return path
 
 
+def is_hidden_wiki_path(relative: Path) -> bool:
+    return any(part.startswith(".") for part in relative.parts)
+
+
 def existing_source_pages(wiki_dir: Path) -> list[Path]:
     sources_dir = wiki_dir / "sources"
     if not sources_dir.exists():
         return []
-    return sorted(sources_dir.rglob("*.md"))
+    return sorted(path for path in sources_dir.rglob("*.md") if path.name != "index.md")
 
 
 def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
@@ -370,13 +519,80 @@ def compute_sync_status(paths: ResolvedPaths) -> dict[str, Any]:
     }
 
 
-def ensure_wiki_structure(wiki_dir: Path) -> None:
-    for directory in ["sources", "entities", "concepts", "analyses", SYNC_METADATA_DIR]:
-        (wiki_dir / directory).mkdir(parents=True, exist_ok=True)
+def build_root_index_text(taxonomy: dict[str, Any]) -> str:
+    lines = [
+        "---",
+        "title: Index",
+        "type: index",
+        "domain: .",
+        "tags:",
+        "  - index",
+        "---",
+        "",
+        "# Wiki",
+        "",
+        "## Summary",
+        "",
+        "This wiki is organized into maintained sections. Start from the section that matches your current question or workflow, then drill into the relevant sub-indexes and leaf pages.",
+        "",
+        "## Main Sections",
+        "",
+    ]
+    for section in taxonomy["root_sections"]:
+        if section == "legacy":
+            continue
+        description = taxonomy["section_descriptions"].get(section, f"Maintained wiki section for {section}.")
+        lines.append(f"- [[{section}/index]]: {description}")
+    lines.extend(
+        [
+            "",
+            "## Notes",
+            "",
+            "This skill manages a general-purpose wiki. Section names and nested taxonomy may come from project config or wiki-local metadata rather than built-in domain assumptions.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
-    index_path = wiki_dir / "index.md"
-    if not index_path.exists():
-        index_path.write_text("# Index\n\n", encoding="utf-8")
+
+def build_directory_index_text(relative_dir: str, description: str | None = None) -> str:
+    title = " ".join(part.replace("-", " ").replace("_", " ").title() for part in Path(relative_dir).parts)
+    summary = description or f"Index for the `{relative_dir}` section."
+    lines = [
+        "---",
+        f"title: {title}",
+        "type: index",
+        f"domain: {relative_dir}",
+        "---",
+        "",
+        f"# {title}",
+        "",
+        "## Summary",
+        "",
+        summary,
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def ensure_wiki_structure(wiki_dir: Path, taxonomy: dict[str, Any] | None = None) -> None:
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    taxonomy = taxonomy or resolve_taxonomy(ResolvedPaths(raw_dir=Path("."), wiki_dir=wiki_dir, config_path=None, source="implicit"))
+    (wiki_dir / SYNC_METADATA_DIR).mkdir(parents=True, exist_ok=True)
+    write_taxonomy_metadata(wiki_dir, taxonomy)
+
+    for relative_dir in taxonomy_directory_paths(taxonomy):
+        (wiki_dir / relative_dir).mkdir(parents=True, exist_ok=True)
+
+    root_index = wiki_dir / "index.md"
+    if not root_index.exists():
+        root_index.write_text(build_root_index_text(taxonomy) + "\n", encoding="utf-8")
+
+    for relative_dir in taxonomy_directory_paths(taxonomy):
+        index_path = wiki_dir / relative_dir / "index.md"
+        if not index_path.exists():
+            description = taxonomy["section_descriptions"].get(relative_dir)
+            index_path.write_text(build_directory_index_text(relative_dir, description) + "\n", encoding="utf-8")
 
     log_path = wiki_dir / "log.md"
     if not log_path.exists():
@@ -439,10 +655,6 @@ def slugify(value: str) -> str:
     text = text.replace("/", "-")
     text = re.sub(r"[-\s]+", "-", text)
     return text.strip("-") or "untitled"
-
-
-def titleize_slug(slug: str) -> str:
-    return slug.replace("-", " ").replace("_", " ").strip().title()
 
 
 def safe_relative_to(path: Path, root: Path) -> Path:
@@ -553,18 +765,35 @@ def write_wiki_page(path: Path, metadata: dict[str, Any], body: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def iter_wiki_pages(wiki_dir: Path) -> list[Path]:
+def iter_wiki_pages(wiki_dir: Path, include_indexes: bool = True) -> list[Path]:
     pages: list[Path] = []
-    for directory in WIKI_PAGE_DIRS:
-        root = wiki_dir / directory
-        if root.exists():
-            pages.extend(sorted(root.rglob("*.md")))
+    for path in sorted(wiki_dir.rglob("*.md")):
+        rel = safe_relative_to(path, wiki_dir)
+        if is_hidden_wiki_path(rel):
+            continue
+        if path.name == "log.md":
+            continue
+        if not include_indexes and path.name == "index.md":
+            continue
+        pages.append(path)
     return pages
 
 
 def wiki_page_ref(path: Path, wiki_dir: Path) -> str:
     relative = safe_relative_to(path, wiki_dir)
     return str(relative.with_suffix("")).replace("\\", "/")
+
+
+def is_index_ref(ref: str) -> bool:
+    return ref == "index" or ref.endswith("/index")
+
+
+def is_source_ref(ref: str) -> bool:
+    return ref.startswith("sources/")
+
+
+def is_legacy_ref(ref: str) -> bool:
+    return ref.startswith("legacy/")
 
 
 def extract_wiki_links(text: str) -> list[str]:
@@ -587,86 +816,6 @@ def extract_summary(body: str) -> str:
 def tokenize(text: str) -> list[str]:
     tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text.lower())
     return [token for token in tokens if token not in STOPWORDS and token not in NOISY_TOKENS]
-
-
-def extract_keywords(text: str, limit: int = 5) -> list[str]:
-    counts: dict[str, int] = {}
-    for token in tokenize(text):
-        counts[token] = counts.get(token, 0) + 1
-    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    return [token for token, _count in ordered[:limit]]
-
-
-def extract_entity_terms(text: str, limit: int = 3) -> list[str]:
-    pattern = re.findall(r"\b((?:[A-Z][a-z0-9+.-]*|[A-Z]{2,})(?: (?:[A-Z][a-z0-9+.-]*|[A-Z]{2,})){0,3})\b", text)
-    seen: list[str] = []
-    for term in pattern:
-        cleaned = term.strip()
-        lower_cleaned = cleaned.lower()
-        if lower_cleaned in STOPWORDS:
-            continue
-        if lower_cleaned in BOILERPLATE_LINES:
-            continue
-        words = cleaned.split()
-        if len(words) == 1 and cleaned != "Solace":
-            continue
-        if words[0].lower() in GENERIC_TITLE_PREFIXES:
-            continue
-        if cleaned.endswith(" Page") or cleaned.endswith(" Guide"):
-            continue
-        if cleaned not in seen:
-            seen.append(cleaned)
-        if len(seen) >= limit:
-            break
-    return seen
-
-
-def format_topic_label(value: str) -> str:
-    cleaned = value.replace("_", " ").replace("-", " ").strip()
-    cleaned = cleaned.replace(".", " ")
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.title()
-
-
-def extract_path_topics(raw_relative: Path, limit: int = 3) -> list[str]:
-    topics: list[str] = []
-    for part in raw_relative.parts[:-1]:
-        label = format_topic_label(part)
-        lower_label = label.lower()
-        if lower_label in GENERIC_CONCEPT_LABELS:
-            continue
-        if len(lower_label) < 4:
-            continue
-        if label not in topics:
-            topics.append(label)
-        if len(topics) >= limit:
-            break
-    return topics
-
-
-def is_entity_like_title(title: str) -> bool:
-    words = title.split()
-    if len(words) < 2:
-        return False
-    if words[0].lower() in GENERIC_TITLE_PREFIXES:
-        return False
-    return title.startswith("Solace ")
-
-
-def choose_related_terms(title: str, content: str, raw_relative: Path) -> dict[str, list[str]]:
-    concepts: list[str] = []
-    for candidate in extract_path_topics(raw_relative):
-        if candidate not in concepts:
-            concepts.append(candidate)
-        if len(concepts) >= 3:
-            break
-    if not concepts and len(title.split()) >= 2 and title.split()[0].lower() not in GENERIC_TITLE_PREFIXES:
-        concepts.append(title)
-
-    entities: list[str] = []
-    if is_entity_like_title(title):
-        entities.append(title)
-    return {"concepts": concepts, "entities": entities}
 
 
 def now_iso_date() -> str:
@@ -698,9 +847,7 @@ def normalize_raw_text(text: str) -> str:
             continue
         if lower_line.startswith("last updated:"):
             continue
-        if lower_line.startswith("copyright"):
-            continue
-        if lower_line.startswith("©"):
+        if lower_line.startswith("copyright") or lower_line.startswith("©"):
             continue
         if lower_line == "placeholder":
             continue
@@ -752,3 +899,27 @@ def extract_key_points(text: str, title: str, limit: int = 5) -> list[str]:
         if len(candidates) >= limit:
             break
     return candidates
+
+
+def classify_destination(raw_relative: Path, title: str, content: str, taxonomy: dict[str, Any] | None = None) -> str:
+    taxonomy = taxonomy or _normalize_taxonomy(None)
+    title_probe = title.lower()
+    path_probe = str(raw_relative).lower()
+    content_probe = content.lower()
+    any_probe = "\n".join([title_probe, path_probe, content_probe])
+    for rule in taxonomy.get("routing_rules", []):
+        match = rule["match"]
+        haystack = {
+            "title": title_probe,
+            "path": path_probe,
+            "content": content_probe,
+            "any": any_probe,
+        }[match]
+        if re.search(rule["pattern"], haystack, re.IGNORECASE):
+            return rule["destination"]
+    return taxonomy["default_destination"]
+
+
+def leaf_page_path(wiki_dir: Path, destination_dir: str, title: str) -> Path:
+    destination = _normalize_path_fragment(destination_dir)
+    return wiki_dir / destination / f"{slugify(title)}.md"

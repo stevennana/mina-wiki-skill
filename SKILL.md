@@ -3,332 +3,105 @@ name: mina-wiki-skill
 description: Maintain a shared markdown wiki from raw source directories and session-derived knowledge. Use when an adopted LLM CLI project should detect raw updates, sync wiki pages, answer from the wiki, or lint a persistent knowledge base backed by WIKI_RAW_DIR and WIKI_DIR.
 ---
 
-This skill turns an adopted LLM CLI session into a disciplined wiki maintainer following the LLM Wiki pattern.
+This skill turns an adopted LLM CLI session into a disciplined maintainer of a general-purpose markdown wiki.
 
-Scripts in this repository are helpers, not the maintainer. They can scaffold pages, detect sync state, and keep bookkeeping metadata, but the LLM using this skill is responsible for building the actual knowledge base by reading sources, revising pages, strengthening cross-links, adding synthesis pages, and linting weak or stale content.
+The wiki is the primary knowledge source. `WIKI_RAW_DIR` is ingestion input, not the normal browsing surface. Helper scripts bootstrap, sync, index, lint, and log the wiki, but the LLM using this skill still owns the editorial work.
 
-The maintained wiki is the primary knowledge base for ongoing LLM work. `WIKI_RAW_DIR` is not the day-to-day reference source for answering user questions or solving problems. Raw exists only as ingestion input when the wiki must be built, refreshed, or repaired.
+## Default Structure
+
+The maintained wiki always includes:
+
+- root `index.md` as the navigation entrypoint
+- `sources/` for raw-source summaries
+- `analyses/` for synthesis, troubleshooting, and filed answers
+- `legacy/` for archived material
+- project-defined maintained sections and nested indexes
+
+Section names and hierarchy are not hardcoded to a specific domain. They come from project config or wiki-local taxonomy metadata when available. If no taxonomy is configured, the skill falls back to a minimal generic structure with `topics/`, `analyses/`, `sources/`, and `legacy/`.
 
 ## Required Working Loop
 
-This skill is not complete when the bootstrap finishes. The required operating loop is:
+When the user asks for the wiki to be built, refreshed, upgraded, or maintained:
 
-1. use scripts to bootstrap or refresh the wiki structure
-2. read raw files one by one
-3. update the wiki editorially after each file or small batch
-4. run lint and quality checks
-5. fix what the lint and quality checks expose
-6. repeat until the wiki clears the quality bar or the user stops the run
+1. validate paths and sync status
+2. bootstrap or sync the wiki structure
+3. read raw files one by one or in tight batches
+4. update `sources/` pages and the maintained topic pages
+5. rebuild indexes
+6. run lint and quality checks
+7. fix what the checks expose
+8. log the batch and update sync metadata when the wiki reflects current raw state
 
-If the LLM stops after script generation, it has not followed this skill.
+Do not stop after script generation or initial sync. A script-only pass is incomplete.
 
-When the user asks for the wiki to be built, upgraded, refreshed, or brought up to quality, do not stop after bootstrap and do not fall back to a report-only mode. Continue the full ingest loop autonomously unless:
+## Session Start
 
-- the user explicitly asks for bootstrap only
-- the user explicitly asks to pause
-- a real blocker appears that cannot be resolved from the current repo, raw corpus, or wiki state
+At session start:
 
-## Operating Stance
+1. run `python3 scripts/wiki_sync_status.py`
+2. if `needs_sync` is `true`, tell the user raw changed and ask whether to sync now
+3. if accepted, run the sync flow, inspect touched pages, improve weak summaries, rebuild indexes, append to `log.md`, and update the sync marker
+4. if declined, continue but state that the wiki may lag raw
 
-You are not a filing clerk. You are the wiki's editor and synthesist.
-
-- Treat the wiki as the default knowledge source.
-- Treat raw material as ingestion input, not as the default reference source.
-- Treat generated pages as drafts, not as deliverables.
-- Every page you touch should become more useful, more coherent, and more connected.
-- The wiki should read like maintained knowledge, not like a sync transcript or a pile of extracted notes.
-
-The core question is not "where do I put this fact?" It is "what does this mean, and how should the wiki change because of it?"
-
-When the user asks a question about the project domain, answer from the wiki first. Only go back to raw if:
-
-- the wiki is missing the needed knowledge
-- the wiki is stale and must be refreshed
-- the user explicitly asks for raw inspection
-
-## When To Use
-
-Use this skill when:
-- a project/session has access to `WIKI_DIR`, optionally with `WIKI_RAW_DIR`
-- the user wants the LLM to build or maintain a persistent wiki
-- the user wants to ingest or re-sync raw sources into the shared wiki
-- the user wants answers grounded in the maintained wiki instead of re-deriving from raw files
-- the user wants to file analysis back into the wiki
-- the user wants to check whether the wiki is behind the raw git repo
-
-Do not modify files in `WIKI_RAW_DIR` except when the user explicitly asks you to initialize git tracking there. Raw is optional read-only input for the LLM wiki workflow, not the product the user reads day to day.
-
-Do not browse `WIKI_RAW_DIR` casually during ordinary question-answering. Raw is not the live working memory of the project. The wiki is.
-
-## Required Environment
-
-Resolve directories in this order:
-1. `WIKI_RAW_DIR` and `WIKI_DIR`
-2. optional config file from `MINA_WIKI_CONFIG`
-3. optional `.mina-wiki.json` discovered in the current project or a parent directory
-
-When the user asks to use this skill and the environment is not configured yet, guide them to set the directories in either:
-- shell session startup files such as `~/.zprofile` or `~/.zshrc`
-- a project-local `.mina-wiki.json`
-
-Preferred guidance:
-- explain the two variables and what they point to
-- offer to configure them on the user's behalf if editing their shell profile or project config is appropriate
-- after editing a shell profile, remind the user to run `source ~/.zprofile` or `source ~/.zshrc`, or start a new shell session
-- for project-specific setup, prefer `.mina-wiki.json` when different projects should point at different wiki roots or when the user does not want global shell changes
-
-Validate paths before substantive work:
-
-```bash
-python3 scripts/check_paths.py
-python3 scripts/wiki_sync_status.py
-```
-
-`WIKI_DIR` must be writable by the current session.
-
-If `WIKI_RAW_DIR` is not a git repo yet, treat that as an initial bootstrap state instead of a hard failure:
-- build the wiki from the current raw tree first
-- if the user wants future freshness checks to use git history, run `python3 scripts/raw_git_init.py` after the initial wiki bootstrap
-
-If `WIKI_RAW_DIR` is a git repo with no commits yet, treat that as an initial bootstrap state instead of a hard failure:
-- build the wiki from the current raw tree first
-- once the wiki reflects the current raw tree well enough, create the first commit in `WIKI_RAW_DIR`
-- after that baseline commit exists, use git state and sync metadata to detect later raw changes precisely
-
-## Session-Start Workflow
-
-At the start of an adopted CLI session:
-1. Run `python3 scripts/wiki_sync_status.py`.
-2. If `needs_sync` is `true`, tell the user raw has changed and ask whether to update the wiki now.
-3. If accepted, inspect the changed raw files, update affected wiki pages, refresh `index.md`, append `log.md`, then record the new sync marker.
-4. If declined, continue but state that the wiki may lag raw.
-
-When `baseline_commit_recommended` is `true`, include the follow-up guidance that the raw repo should get its first commit after the initial wiki sync is complete.
-
-The helper script reports freshness. The user approval step stays in the conversation layer.
+When `baseline_commit_recommended` is `true`, treat the run as initial bootstrap guidance. Finish the first useful sync, then create the first commit in `WIKI_RAW_DIR`.
 
 ## Mandatory Execution Order
 
-When a user wants the wiki maintained, follow this order unless they explicitly redirect you:
+When maintaining the wiki:
 
-1. Validate paths and sync state.
-2. If needed, run the bootstrap helpers:
-   `python3 scripts/wiki_sync.py --update-sync-marker`
-   or
-   `python3 scripts/wiki_sync.py --reset-generated --update-sync-marker`
-3. If `WIKI_RAW_DIR` is not a git repo and the user wants git-backed freshness, run:
-   `python3 scripts/raw_git_init.py` or `python3 scripts/raw_git_init.py --initial-commit`
-4. Build the real knowledge base by reading raw files one by one and rewriting wiki pages.
-5. Run quality checks:
-   `python3 scripts/wiki_quality_audit.py`
-   `python3 scripts/wiki_lint.py`
-6. Fix what those checks expose.
-7. Re-run the quality checks.
-8. Record the completed batch in version control when `WIKI_DIR` is a git repo, or initialize git there if the user wants commit-backed wiki history.
-9. Continue the cycle until the wiki materially improves and the remaining gaps are clearly reported.
-
-Do not stop at step 2 unless the user explicitly asked for bootstrap only.
-Do not ask the user for permission between these steps unless a real blocker or ambiguity would make continuing risky. The default behavior is to continue.
-
-When the user wants an answer or problem-solving help rather than wiki maintenance, use this order:
-
-1. Read `index.md`.
-2. Read the most relevant wiki pages and analyses.
-3. Answer from the wiki.
-4. Only if the wiki is insufficient, switch into a wiki-refresh flow that may read raw and then update the wiki.
-
-Do not default to raw-first exploration for ordinary domain questions.
+1. `python3 scripts/check_paths.py`
+2. `python3 scripts/wiki_sync_status.py`
+3. if needed, `python3 scripts/wiki_sync.py --update-sync-marker`
+4. if replacing generated material cleanly, `python3 scripts/wiki_sync.py --reset-generated --update-sync-marker`
+5. if migrating an old flat wiki, `python3 scripts/migrate_to_hierarchical.py`
+6. read raw files and editorially improve touched pages
+7. `python3 scripts/wiki_index.py`
+8. `python3 scripts/wiki_quality_audit.py`
+9. `python3 scripts/wiki_lint.py`
+10. fix what the checks expose
+11. rerun the checks
 
 ## Non-Negotiable Editing Rules
 
-- Read `index.md` before targeted wiki work so you match against existing pages instead of creating near-duplicates.
-- Re-read every wiki page before updating it. Do not patch blind from memory.
-- For ordinary project questions, read wiki pages before considering raw sources.
-- Never treat a script-generated stub as "done". Rewrite it if it reads like scaffolding.
-- Do not append loose chronology to the bottom of a page when the page should be reorganized by topic, role, architecture, workflow, or pattern.
-- If a page cannot support at least 3 meaningful sentences, do not create it yet unless the user explicitly wants a placeholder.
-- If a subtopic keeps accumulating material, split it into its own page instead of cramming it into an overgrown parent page.
-- If a page stays vague even after multiple supporting sources, enrich it instead of spawning more thin pages.
-- Prefer synthesis over coverage theater. Fewer strong pages beat many weak stubs.
+- Read root `index.md` before targeted wiki work.
+- Re-read every page before editing it.
+- Prefer maintained topic pages over raw-source mirrors.
+- Treat `sources/` as evidence summaries, not the main user-facing knowledge surface.
+- Keep `last_reviewed` stable during automatic cleanup or relinking. Only update it for new pages or deliberate editorial revisions.
+- Prefer one strong maintained page over many thin stubs.
+- Split overgrown pages by stable topic or workflow, not chronology.
+- Rewrite generated placeholders instead of preserving them.
+- If a flat legacy page exists, migrate or archive it instead of extending the old namespace.
 
-When judging page quality, reject these failure modes:
-- raw-file mirrors
-- bullet dumps without explanation
-- diary-style chronology when a thematic structure is possible
-- isolated pages with weak or missing cross-links
-- summaries that restate the first paragraph of the raw source without adding context
+## Taxonomy Rules
 
-## Post-Bootstrap Requirement
+- The skill is general-purpose. It must not hardcode one project's domain taxonomy as the global default.
+- Project-specific hierarchy belongs in config or wiki-local taxonomy metadata.
+- If taxonomy config is present, bootstrap, ingest, sync, migration, and index rebuild must all follow it.
+- If taxonomy config is absent, use the minimal fallback structure rather than inventing domain-specific section names.
 
-After any full-directory sync such as `python3 scripts/wiki_sync.py --update-sync-marker` or `--reset-generated`, the LLM must do an editorial pass. This is required, not optional.
+## Query Workflow
 
-Minimum post-bootstrap work:
-- inspect the touched `sources/`, `concepts/`, and `entities/` pages, not just a random sample
-- read raw files one by one or in tightly related batches
-- rewrite obvious stub summaries and "Auto-maintained ..." placeholder language
-- convert clipped extraction into coherent summaries
-- merge duplicated concepts or split bloated pages where needed
-- create or improve at least one higher-level synthesis page in `analyses/` or another appropriate directory when the material supports it
-- refresh `index.md` after meaningful editorial changes
-- log the editorial pass when the batch is complete
+When the user asks a domain question:
 
-A script-only pass is incomplete. The wiki is only considered healthy after the editorial pass.
+1. read `index.md`
+2. read the most relevant section indexes
+3. read the relevant leaf pages
+4. answer from the wiki
+5. if the answer is durable, save it under `analyses/` and log it
 
-## File-By-File Editorial Pass
+Do not browse raw first for ordinary domain questions unless the wiki is missing or stale.
 
-After bootstrap, the LLM must walk the raw corpus and keep looping. The intended behavior is:
+## Quality Bar
 
-- pick a raw file
-- read the corresponding source page if it exists
-- read the likely related concept/entity/analysis pages
-- compare the raw file against the current wiki state
-- rewrite the wiki so the new knowledge is integrated cleanly
-- move to the next raw file
+Reject these failure modes:
 
-This is not a search-only or spot-check workflow. It is a progressive editorial compilation workflow.
-It is also not a question-driven workflow once the user has already asked for the wiki to be maintained. The LLM should keep moving through the corpus and updating the wiki without asking for confirmation between ordinary ingest steps.
+- project-specific taxonomy hardcoded into the skill itself
+- raw-file mirrors without synthesis
+- placeholder text such as `Auto-maintained`
+- thin maintained pages with no explanation
+- stale indexes after major edits
+- isolated leaf pages with weak backlinks
+- unnecessary metadata churn from automatic sync steps
 
-Outside of an active ingest or refresh loop, do not treat the raw corpus as the primary browsing surface. The whole point of the workflow is to move durable knowledge out of raw and into the wiki so later sessions can work from the wiki first.
-
-When processing each raw file, decide:
-- does the existing `sources/` page need a better summary?
-- does this belong in an existing concept page instead of a new page?
-- does an entity page need to be upgraded from stub to real explanation?
-- does this source reveal a broader pattern that belongs in `analyses/`?
-
-Never respond to a large corpus by only fixing one or two pages and stopping if the user asked for the wiki to be brought up to quality.
-Never stop merely because you have produced a representative sample. A representative sample is useful for review, but it does not satisfy the maintenance loop.
-
-## Autonomy Rule
-
-If the user intent is "make the wiki good" rather than "show me what is wrong", the LLM must act as an operator running a loop, not as an analyst producing checkpoints.
-
-That means:
-
-- do the bootstrap work
-- do the editorial rewrite work
-- do the lint/audit work
-- do the remediation work
-- continue until the current pass has a meaningful stopping point
-
-Do not insert extra conversational checkpoints such as:
-- "I found the issue, should I continue?"
-- "The bootstrap is done, should I now rewrite pages?"
-- "The audit still shows failures, do you want me to keep going?"
-
-Those checkpoints are only valid when the user explicitly asked for staged confirmation or when continuing would be genuinely risky.
-
-## Wiki History Rule
-
-When a meaningful ingest or remediation batch is complete, preserve the result in `WIKI_DIR` history.
-
-Preferred behavior:
-
-- if `WIKI_DIR` is already a git repo, stage the changed wiki files and create a commit
-- if `WIKI_DIR` is not a git repo and the user wants commit-backed history, initialize git in `WIKI_DIR` and then commit the batch
-- commit after meaningful units of work, not after every tiny edit
-
-Meaningful commit boundaries include:
-
-- initial bootstrap completion
-- an editorial pass for a coherent domain or cluster
-- a remediation batch driven by lint or audit findings
-- a cleanup batch for malformed titles, placeholder pages, or structural reorganization
-
-Before committing a batch:
-
-- run `python3 scripts/wiki_quality_audit.py`
-- run `python3 scripts/wiki_lint.py`
-- review the touched files to ensure the batch represents a coherent step forward
-
-Commit messages should be short and specific. Prefer messages such as:
-
-- `Bootstrap wiki from raw corpus`
-- `Rewrite cloud and event mesh knowledge pages`
-- `Add Solace platform operating model analysis`
-- `Remediate placeholder pages in messaging cluster`
-
-Do not leave a completed batch only in the working tree if commit-backed wiki history is available and the user asked for traceable progress.
-
-## Core Operations
-
-### Ingest
-
-- Read one raw file at a time or one tightly related batch at a time.
-- Read the current wiki context first so you know whether the material belongs in an existing page, a richer section on that page, or a genuinely new page.
-- Treat any script-generated page content as a first draft.
-- Distill them into wiki knowledge, not raw-file mirrors.
-- Create or update a source page under `sources/` that stands on its own as a useful summary.
-- Update linked entity/concept/analysis pages as needed.
-- Revise the touched pages after generation so they read like maintained knowledge, not scaffolding output.
-- Add or improve at least one synthesis page when the raw material reveals a broader pattern, workflow, architecture, taxonomy, or comparison.
-- Integrate new knowledge into the body of the page. Do not just append a note saying the source mentioned it.
-- Refresh `index.md`.
-- Append a chronological entry to `log.md`.
-- After a successful raw-driven sync, update the sync marker:
-
-```bash
-python3 scripts/log_operation.py --operation ingest --update-sync-marker --touched sources/example.md entities/topic.md
-```
-
-### Query
-
-- Read `index.md` first to find relevant pages.
-- Read only the pages needed to answer, then follow cross-links surgically.
-- Lead with the answer, then support it with wiki evidence.
-- Cite wiki pages explicitly in the answer.
-- Treat raw as out of scope for ordinary queries unless the wiki is missing needed knowledge and must be refreshed.
-- If the result is durable knowledge, file it under `analyses/` or another appropriate page and log it.
-
-### Lint
-
-- Look for stale claims versus newer raw changes.
-- Find orphan pages, missing cross-links, weak summaries, and contradiction candidates.
-- Suggest which raw sources or wiki pages need review.
-- Rewrite weak generated pages when they do not meet the wiki's quality bar.
-- Check for anti-cramming failures: large pages that should be split by subtopic.
-- Check for anti-thinning failures: too many thin pages that should have been enriched instead of multiplied.
-- Favor thematic structure over event-log structure.
-- Use deterministic checks when available:
-  `python3 scripts/wiki_quality_audit.py`
-  `python3 scripts/wiki_lint.py`
-- Treat audit failures as work to do, not as a report-only output.
-
-## Quality Gate
-
-The loop should continue until the LLM has either materially improved the wiki or can name the exact remaining blockers.
-
-The wiki is not high quality while any of these remain in the touched area:
-- `Auto-maintained` placeholder text
-- clipped or obviously truncated summaries
-- malformed filenames or titles
-- empty `analyses/` despite clear cross-source patterns
-- concept/entity pages that are only link lists
-- index entries that still read like bootstrap output
-
-`python3 scripts/wiki_quality_audit.py` is the minimum deterministic gate. The LLM is still expected to apply judgment beyond that script.
-
-## Wiki Conventions
-
-- Keep the shared wiki Obsidian-friendly and markdown-first.
-- Prefer directories such as `sources/`, `entities/`, `concepts/`, and `analyses/`.
-- `index.md` is the catalog. `log.md` is append-only chronology.
-- Use wiki links like `[[entities/example-topic]]`.
-- The wiki is the primary knowledge artifact. Pages should be understandable without opening the raw source file.
-- Do not turn wiki pages into thin wrappers around file paths, commit hashes, or raw excerpts.
-- Keep raw-sync bookkeeping in helper metadata under `.mina-wiki/`, not in the visible page content model.
-- Optional frontmatter is allowed for `type`, `sources`, and `last_reviewed`.
-- Prefer theme-driven sections such as overview, responsibilities, architecture, workflows, tradeoffs, and related concepts over date-driven sections unless the page is inherently historical.
-- Use direct quotes sparingly and only when they preserve meaning that a paraphrase would flatten.
-- When linking important pages, prefer dual readability: clear Obsidian wikilinks in text and enough descriptive prose that the page still makes sense in plain markdown viewers.
-
-Read [references/configuration.md](references/configuration.md) for path/config details and [references/operations.md](references/operations.md) for workflow and page conventions. Use the helper scripts in `scripts/` for deterministic checks and logging instead of re-implementing them in chat.
-
-For reusable operator shortcuts, read [references/slash-commands.md](references/slash-commands.md). Use those prompt contracts when the user wants command-like wiki operations such as add, update, delete, sync, query, or lint from Codex CLI or Claude Code.
-
-When this skill is adopted into another project, installation is not complete until project-local instructions are injected:
-
-- if the project has `AGENTS.md`, inject a `Codex Wiki Commands` section into it
-- if the project has `CLAUDE.md`, inject the Claude-oriented wiki workflow into it
-- if these files do not exist, create them and inject the relevant wiki principles
-- when `generate_slash_commands.py` is used, treat `generated/slash-commands/codex-commands-snippet.md` as the canonical section to inject into `AGENTS.md`
+The wiki is only healthy when maintained pages, source summaries, and indexes agree on the same configured structure.

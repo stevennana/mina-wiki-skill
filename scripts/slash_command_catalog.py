@@ -36,9 +36,9 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Run sync-status first.",
             "If raw has changed, ask the user for approval before editing wiki pages.",
             "After approval, run `python3 scripts/wiki_sync.py --update-sync-marker` for full-directory sync or sync the requested raw path.",
-            "Update affected pages, `index.md`, `log.md`, and sync metadata.",
+            "Update affected pages, rebuild root and section indexes, append to `log.md`, and refresh sync metadata.",
         ),
-        examples=("/wiki-sync", "/wiki-sync sources/article-a.md"),
+        examples=("/wiki-sync", "/wiki-sync docs/example-source.md"),
         safety_notes=("Never edit files in `WIKI_RAW_DIR`.",),
     ),
     SlashCommand(
@@ -48,9 +48,9 @@ COMMANDS: tuple[SlashCommand, ...] = (
         behavior=(
             "Read the raw source relative to `WIKI_RAW_DIR`.",
             "Create or update a page in `sources/`.",
-            "Update linked entity/concept pages, refresh `index.md`, and append to `log.md`.",
+            "Update the maintained topic page using configured taxonomy or fallback destination, rebuild the relevant indexes, and append to `log.md`.",
         ),
-        examples=("/wiki-add-source articles/llm-wiki.md",),
+        examples=("/wiki-add-source docs/example-source.md",),
     ),
     SlashCommand(
         name="wiki-update-page",
@@ -62,7 +62,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Repair nearby links when the update changes references and append to `log.md`.",
         ),
         examples=(
-            "/wiki-update-page entities/karpathy.md add the latest synthesis from articles/llm-wiki.md",
+            "/wiki-update-page topics/example-topic.md refine the explanation and add source coverage",
         ),
     ),
     SlashCommand(
@@ -74,7 +74,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Prefer archive or merge semantics over hard delete when useful history exists.",
             "Remove or repair obvious inbound references and append a delete/archive entry to `log.md`.",
         ),
-        examples=("/wiki-delete-page analyses/old-comparison.md",),
+        examples=("/wiki-delete-page analyses/old-comparison.md", "/wiki-delete-page legacy/flat/concepts/old-topic.md"),
         safety_notes=("Always ask for confirmation before deleting or archiving a page.",),
     ),
     SlashCommand(
@@ -86,7 +86,7 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Answer with citations to wiki pages.",
             "If the user asks to save the result, write it to `analyses/` and log the operation.",
         ),
-        examples=("/wiki-query What are the core design principles of the LLM Wiki pattern?",),
+        examples=("/wiki-query What does the example topic cover in this system?",),
     ),
     SlashCommand(
         name="wiki-lint",
@@ -107,6 +107,6 @@ COMMANDS: tuple[SlashCommand, ...] = (
             "Include operation name and touched pages.",
             "Update sync metadata only when the wiki reflects current raw state.",
         ),
-        examples=("/wiki-log ingest sources/llm-wiki.md entities/llm.md",),
+        examples=("/wiki-log ingest sources/example-source.md topics/example-topic.md",),
     ),
 )

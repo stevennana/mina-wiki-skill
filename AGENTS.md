@@ -17,7 +17,7 @@ Keep the wiki-specific logic in the helper layer, not duplicated across docs. Ex
 The helper scripts use only the Python standard library. No install step is required for local development.
 
 ## Coding Style & Naming Conventions
-Use Python 3 with 4-space indentation and type hints where they improve clarity. Keep scripts small and composable. Prefer snake_case for Python modules, functions, JSON keys, and config fields. Use concise Markdown headings and Obsidian-friendly wiki link examples in docs.
+Use Python 3 with 4-space indentation and type hints where they improve clarity. Keep scripts small and composable. Prefer snake_case for Python modules, functions, JSON keys, and config fields. Use concise Markdown headings and markdown wiki-link examples in docs.
 
 Environment variables are uppercase and fixed:
 - `WIKI_RAW_DIR`

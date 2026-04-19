@@ -7,7 +7,17 @@ import json
 import sys
 from pathlib import Path
 
-from wiki_common import ConfigError, iter_wiki_pages, read_wiki_page, resolve_paths, safe_relative_to, validate_paths
+from wiki_common import (
+    ConfigError,
+    is_index_ref,
+    is_source_ref,
+    iter_wiki_pages,
+    read_wiki_page,
+    resolve_paths,
+    safe_relative_to,
+    validate_paths,
+    wiki_page_ref,
+)
 
 
 PLACEHOLDER_TOKENS = ("Auto-maintained", "No related pages yet.")
@@ -21,8 +31,7 @@ def line_count(path: Path) -> int:
 def build_audit(wiki_dir: Path) -> dict[str, object]:
     placeholder_pages: list[str] = []
     malformed_titles: list[str] = []
-    short_concepts: list[str] = []
-    short_entities: list[str] = []
+    short_leaf_pages: list[str] = []
     analyses_count = 0
     index_has_placeholders = False
 
@@ -41,27 +50,24 @@ def build_audit(wiki_dir: Path) -> dict[str, object]:
         if "\uf0c1" in rel_str or "\uf0c1" in str(metadata.get("title", "")):
             malformed_titles.append(rel_str)
 
+        ref = wiki_page_ref(page, wiki_dir)
         count = line_count(page)
-        if rel.parts[0] == "concepts" and count < 15:
-            short_concepts.append(rel_str)
-        elif rel.parts[0] == "entities" and count < 15:
-            short_entities.append(rel_str)
-        elif rel.parts[0] == "analyses":
+        if ref.startswith("analyses/") and not is_index_ref(ref):
             analyses_count += 1
+        elif not is_index_ref(ref) and not is_source_ref(ref) and count < 15:
+            short_leaf_pages.append(rel_str)
 
     return {
         "placeholder_pages": sorted(placeholder_pages),
         "malformed_titles": sorted(malformed_titles),
-        "short_concepts": sorted(short_concepts),
-        "short_entities": sorted(short_entities),
+        "short_leaf_pages": sorted(short_leaf_pages),
         "analyses_count": analyses_count,
         "index_has_placeholders": index_has_placeholders,
         "passes_editorial_gate": not any(
             [
                 placeholder_pages,
                 malformed_titles,
-                short_concepts,
-                short_entities,
+                short_leaf_pages,
                 analyses_count == 0,
                 index_has_placeholders,
             ]

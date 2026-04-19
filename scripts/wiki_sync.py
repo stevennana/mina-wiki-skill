@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,12 +16,12 @@ from wiki_common import (
     ensure_wiki_structure,
     extract_wiki_links,
     git_snapshot,
-    now_iso_date,
-    read_wiki_page,
     read_source_map,
+    read_wiki_page,
     resolve_paths,
+    resolve_taxonomy,
     safe_relative_to,
-    source_page_path,
+    taxonomy_directory_paths,
     validate_paths,
     wiki_page_ref,
     write_source_map,
@@ -62,30 +63,33 @@ def existing_source_map(wiki_dir: Path) -> dict[str, Path]:
 
 def cleanup_related_pages(wiki_dir: Path, source_ref: str) -> list[str]:
     touched: list[str] = []
-    for directory in ("concepts", "entities"):
-        root = wiki_dir / directory
-        if not root.exists():
+    for page in sorted(wiki_dir.rglob("*.md")):
+        rel = safe_relative_to(page, wiki_dir)
+        if any(part.startswith(".") for part in rel.parts):
             continue
-        for page in sorted(root.rglob("*.md")):
-            metadata, body = read_wiki_page(page)
-            sources = metadata.get("sources", [])
-            if isinstance(sources, str):
-                sources = [sources]
-            if source_ref not in sources and f"[[{source_ref}]]" not in body:
-                continue
+        if rel.parts[0] == "sources" or page.name == "log.md":
+            continue
+        metadata, body = read_wiki_page(page)
+        sources = metadata.get("sources", [])
+        if isinstance(sources, str):
+            sources = [sources]
+        if source_ref not in sources and f"[[{source_ref}]]" not in body:
+            continue
 
-            new_sources = [item for item in sources if item != source_ref]
-            new_lines = [line for line in body.splitlines() if line.strip() != f"- [[{source_ref}]]"]
-            new_body = "\n".join(new_lines).strip() + "\n"
-            page_ref = wiki_page_ref(page, wiki_dir)
-            remaining_links = [link for link in extract_wiki_links(new_body) if link != source_ref]
-            if not new_sources and metadata.get("type") in {"concept", "entity"} and not remaining_links:
-                page.unlink()
-                touched.append(page_ref)
-                continue
+        new_sources = [item for item in sources if item != source_ref]
+        new_lines = [line for line in body.splitlines() if line.strip() != f"- [[{source_ref}]]"]
+        new_body = "\n".join(new_lines).strip() + "\n"
+        page_ref = wiki_page_ref(page, wiki_dir)
+        remaining_links = [link for link in extract_wiki_links(new_body) if link != source_ref]
+        if not new_sources and not remaining_links and not page_ref.endswith("/index") and not page_ref.startswith("analyses/"):
+            page.unlink()
+            touched.append(page_ref)
+            continue
 
+        sources_changed = new_sources != sources
+        body_changed = new_body.strip() != body.strip()
+        if sources_changed or body_changed:
             metadata["sources"] = new_sources
-            metadata["last_reviewed"] = now_iso_date()
             write_wiki_page(page, metadata, new_body)
             touched.append(page_ref)
     return touched
@@ -117,18 +121,13 @@ def rebuild_index(script_dir: Path) -> None:
     )
 
 
-def reset_generated_content(wiki_dir: Path) -> None:
-    for relative in ("sources", "concepts", "entities", "analyses", ".mina-wiki"):
+def reset_generated_content(wiki_dir: Path, taxonomy: dict[str, object]) -> None:
+    removable_dirs = taxonomy_directory_paths(taxonomy)
+    removable_dirs.append(".mina-wiki")
+    for relative in removable_dirs:
         root = wiki_dir / relative
-        if not root.exists():
-            continue
-        for path in sorted(root.rglob("*"), reverse=True):
-            if path.is_file():
-                path.unlink()
-            elif path.is_dir():
-                path.rmdir()
         if root.exists():
-            root.rmdir()
+            shutil.rmtree(root)
     for relative in ("index.md", "log.md"):
         path = wiki_dir / relative
         if path.exists():
@@ -144,15 +143,16 @@ def main() -> int:
             print(json.dumps({"ok": False, "errors": errors}, indent=2))
             return 1
 
+        taxonomy = resolve_taxonomy(paths)
         if args.reset_generated:
-            reset_generated_content(paths.wiki_dir)
-        ensure_wiki_structure(paths.wiki_dir)
+            reset_generated_content(paths.wiki_dir, taxonomy)
+        ensure_wiki_structure(paths.wiki_dir, taxonomy)
         raw_files = list_raw_files(paths.raw_dir)
         raw_relatives = {str(path) for path in raw_files}
         all_touched: list[str] = []
 
         for raw_relative in raw_files:
-            all_touched.extend(ingest_one(paths, str(raw_relative)))
+            all_touched.extend(ingest_one(paths, str(raw_relative), taxonomy))
 
         deleted = delete_missing_sources(paths, raw_relatives)
         all_touched.extend(deleted)

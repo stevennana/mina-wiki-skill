@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild index.md from current wiki pages."""
+"""Rebuild wiki indexes from current pages and taxonomy metadata."""
 
 from __future__ import annotations
 
@@ -9,45 +9,75 @@ from pathlib import Path
 
 from wiki_common import (
     ConfigError,
+    build_directory_index_text,
+    build_root_index_text,
     extract_summary,
-    iter_wiki_pages,
     read_wiki_page,
     resolve_paths,
+    resolve_taxonomy,
     safe_relative_to,
     validate_paths,
     wiki_page_ref,
 )
 
 
-SECTION_TITLES = {
-    "sources": "Sources",
-    "entities": "Entities",
-    "concepts": "Concepts",
-    "analyses": "Analyses",
-}
+def discover_section_dirs(wiki_dir: Path) -> list[Path]:
+    directories: list[Path] = []
+    for path in sorted(wiki_dir.rglob("*")):
+        if not path.is_dir():
+            continue
+        rel = safe_relative_to(path, wiki_dir)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        directories.append(path)
+    return directories
 
 
-def build_index(wiki_dir: Path) -> str:
-    grouped: dict[str, list[str]] = {key: [] for key in SECTION_TITLES}
-    for page in iter_wiki_pages(wiki_dir):
-        rel = safe_relative_to(page, wiki_dir)
-        section = rel.parts[0]
-        metadata, body = read_wiki_page(page)
-        title = metadata.get("title") or Path(rel).stem.replace("-", " ").title()
-        summary = metadata.get("summary") or extract_summary(body) or "No summary yet."
-        page_ref = wiki_page_ref(page, wiki_dir)
-        grouped[section].append(f"- [[{page_ref}]]: {summary}")
+def list_leaf_pages(directory: Path) -> list[Path]:
+    return sorted(path for path in directory.glob("*.md") if path.name != "index.md")
 
-    lines = ["# Index", ""]
-    for section, heading in SECTION_TITLES.items():
-        lines.append(f"## {heading}")
-        entries = grouped[section]
-        if entries:
-            lines.extend(entries)
-        else:
-            lines.append(f"- No {section} pages yet.")
+
+def build_directory_entries(wiki_dir: Path, directory: Path) -> list[str]:
+    lines: list[str] = []
+    subdirs = sorted(path for path in directory.iterdir() if path.is_dir() and not path.name.startswith("."))
+    if subdirs:
+        lines.extend(["## Subsections", ""])
+        for child in subdirs:
+            lines.append(f"- [[{wiki_page_ref(child / 'index.md', wiki_dir)}]]")
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+
+    leaf_pages = list_leaf_pages(directory)
+    if leaf_pages:
+        lines.extend(["## Pages", ""])
+        for page in leaf_pages:
+            metadata, body = read_wiki_page(page)
+            summary = metadata.get("summary") or extract_summary(body) or "No summary yet."
+            lines.append(f"- [[{wiki_page_ref(page, wiki_dir)}]]: {summary}")
+        lines.append("")
+    return lines
+
+
+def write_index(path: Path, text: str) -> None:
+    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def rebuild_indexes(wiki_dir: Path, taxonomy: dict[str, object]) -> list[str]:
+    touched: list[str] = []
+    root_index = wiki_dir / "index.md"
+    write_index(root_index, build_root_index_text(taxonomy))
+    touched.append(str(root_index.relative_to(wiki_dir)))
+
+    descriptions = taxonomy.get("section_descriptions", {})
+    for directory in discover_section_dirs(wiki_dir):
+        rel = safe_relative_to(directory, wiki_dir)
+        description = descriptions.get(str(rel).replace("\\", "/"))
+        base = build_directory_index_text(str(rel).replace("\\", "/"), description).splitlines()
+        base.extend(build_directory_entries(wiki_dir, directory))
+        index_path = directory / "index.md"
+        write_index(index_path, "\n".join(base))
+        touched.append(str(index_path.relative_to(wiki_dir)))
+
+    return touched
 
 
 def main() -> int:
@@ -57,10 +87,9 @@ def main() -> int:
         if errors:
             print(json.dumps({"ok": False, "errors": errors}, indent=2))
             return 1
-        index_text = build_index(paths.wiki_dir)
-        index_path = paths.wiki_dir / "index.md"
-        index_path.write_text(index_text, encoding="utf-8")
-        print(json.dumps({"ok": True, "index_path": str(index_path)}, indent=2))
+        taxonomy = resolve_taxonomy(paths)
+        touched = rebuild_indexes(paths.wiki_dir, taxonomy)
+        print(json.dumps({"ok": True, "touched": touched}, indent=2))
         return 0
     except ConfigError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, indent=2))

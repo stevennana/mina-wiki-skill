@@ -12,22 +12,23 @@ from pathlib import Path
 from wiki_common import (
     ConfigError,
     append_log_entry,
-    choose_related_terms,
+    classify_destination,
     ensure_wiki_structure,
     extract_key_points,
     extract_title_and_summary,
     git_snapshot,
+    leaf_page_path,
     now_iso_date,
     read_raw_text,
+    read_source_map,
     read_wiki_page,
     resolve_paths,
+    resolve_taxonomy,
     resolve_raw_input,
     safe_relative_to,
     source_page_path,
-    titleize_slug,
     validate_paths,
     wiki_page_ref,
-    read_source_map,
     write_source_map,
     write_sync_metadata,
     write_wiki_page,
@@ -41,32 +42,51 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def update_related_page(page_path: Path, page_type: str, title: str, source_ref: str) -> None:
-    if page_path.exists():
-        metadata, body = read_wiki_page(page_path)
-    else:
+def upsert_leaf_page(page_path: Path, title: str, source_ref: str, summary: str) -> bool:
+    is_new_page = not page_path.exists()
+    if is_new_page:
         metadata = {
-            "type": page_type,
+            "type": "concept",
             "title": title,
             "last_reviewed": now_iso_date(),
             "sources": [source_ref],
         }
-        body = f"## Summary\n\nAuto-maintained {page_type} page for {title}.\n\n## Links\n\n"
+        body = "\n".join(
+            [
+                "## Summary",
+                "",
+                summary,
+                "",
+                "## Source Coverage",
+                "",
+                f"- [[{source_ref}]]",
+                "",
+            ]
+        )
+        write_wiki_page(page_path, metadata, body)
+        return True
 
+    metadata, body = read_wiki_page(page_path)
     sources = metadata.get("sources", [])
     if isinstance(sources, str):
         sources = [sources]
+
+    changed = False
     if source_ref not in sources:
         sources.append(source_ref)
-    metadata["sources"] = sorted(sources)
-    metadata["last_reviewed"] = now_iso_date()
+        metadata["sources"] = sorted(sources)
+        changed = True
 
-    link_line = f"- [[{source_ref}]]"
-    if "## Links" not in body:
-        body = body.rstrip() + "\n\n## Links\n\n"
-    if link_line not in body:
-        body = body.rstrip() + f"\n{link_line}\n"
-    write_wiki_page(page_path, metadata, body)
+    if "## Source Coverage" not in body:
+        body = body.rstrip() + "\n\n## Source Coverage\n\n"
+        changed = True
+    if f"- [[{source_ref}]]" not in body:
+        body = body.rstrip() + f"\n- [[{source_ref}]]\n"
+        changed = True
+
+    if changed:
+        write_wiki_page(page_path, metadata, body)
+    return changed
 
 
 def rebuild_index(script_dir: Path) -> None:
@@ -78,20 +98,23 @@ def rebuild_index(script_dir: Path) -> None:
     )
 
 
-def ingest_one(paths, raw_input: str) -> list[str]:
+def ingest_one(paths, raw_input: str, taxonomy: dict[str, object] | None = None) -> list[str]:
     raw_path = resolve_raw_input(paths.raw_dir, raw_input)
     raw_relative = safe_relative_to(raw_path, paths.raw_dir)
     raw_text, is_text = read_raw_text(raw_path)
-    raw_snapshot = git_snapshot(paths.raw_dir)
     source_path = source_page_path(paths.wiki_dir, raw_relative)
     source_ref = wiki_page_ref(source_path, paths.wiki_dir)
+    taxonomy = taxonomy or resolve_taxonomy(paths)
 
     title, summary = extract_title_and_summary(raw_path, raw_text) if is_text else (
         raw_path.stem.replace("_", " ").replace("-", " ").strip() or raw_path.name,
         f"Raw source {raw_path.name}",
     )
-    related = choose_related_terms(title, raw_text, raw_relative)
     key_points = extract_key_points(raw_text, title, limit=5) if is_text else []
+    destination_dir = classify_destination(raw_relative, title, raw_text, taxonomy)
+    destination_path = leaf_page_path(paths.wiki_dir, destination_dir, title)
+    destination_ref = wiki_page_ref(destination_path, paths.wiki_dir)
+
     body_lines = [
         "## Summary",
         "",
@@ -101,45 +124,49 @@ def ingest_one(paths, raw_input: str) -> list[str]:
         "",
     ]
     if key_points:
-        for line in key_points:
-            body_lines.append(f"- {line[:220]}")
+        body_lines.extend(f"- {line[:220]}" for line in key_points)
     else:
         body_lines.append(f"- Binary or unsupported raw source: `{raw_path.name}`")
+    body_lines.extend(
+        [
+            "",
+            "## Maintained Coverage",
+            "",
+            f"- [[{destination_ref}]]",
+            "",
+        ]
+    )
 
-    related_links: list[str] = []
-    touched = [str(source_path.relative_to(paths.wiki_dir))]
-
-    for concept in related["concepts"][:3]:
-        slug = concept.lower().replace("_", "-")
-        concept_path = paths.wiki_dir / "concepts" / f"{slug}.md"
-        update_related_page(concept_path, "concept", titleize_slug(slug), source_ref)
-        related_links.append(f"[[{wiki_page_ref(concept_path, paths.wiki_dir)}]]")
-        touched.append(str(concept_path.relative_to(paths.wiki_dir)))
-
-    for entity in related["entities"][:2]:
-        slug = entity.lower().replace(" ", "-")
-        entity_path = paths.wiki_dir / "entities" / f"{slug}.md"
-        update_related_page(entity_path, "entity", entity, source_ref)
-        related_links.append(f"[[{wiki_page_ref(entity_path, paths.wiki_dir)}]]")
-        touched.append(str(entity_path.relative_to(paths.wiki_dir)))
-
-    body_lines.extend(["", "## Related", ""])
-    if related_links:
-        body_lines.extend(f"- {link}" for link in related_links)
+    touched: list[str] = []
+    new_body = "\n".join(body_lines)
+    if source_path.exists():
+        existing_metadata, existing_body = read_wiki_page(source_path)
+        metadata = {
+            "type": "source",
+            "title": title,
+            "summary": summary,
+            "last_reviewed": existing_metadata.get("last_reviewed", now_iso_date()),
+        }
+        if existing_metadata != metadata or existing_body.strip() != new_body.strip():
+            write_wiki_page(source_path, metadata, new_body)
+            touched.append(str(source_path.relative_to(paths.wiki_dir)))
     else:
-        body_lines.append("- No related pages yet.")
+        metadata = {
+            "type": "source",
+            "title": title,
+            "summary": summary,
+            "last_reviewed": now_iso_date(),
+        }
+        write_wiki_page(source_path, metadata, new_body)
+        touched.append(str(source_path.relative_to(paths.wiki_dir)))
 
-    metadata = {
-        "type": "source",
-        "title": title,
-        "summary": summary,
-        "last_reviewed": now_iso_date(),
-    }
-    write_wiki_page(source_path, metadata, "\n".join(body_lines))
+    if upsert_leaf_page(destination_path, title, source_ref, summary):
+        touched.append(str(destination_path.relative_to(paths.wiki_dir)))
+
     source_mapping = read_source_map(paths.wiki_dir)
     source_mapping[str(raw_relative)] = wiki_page_ref(source_path, paths.wiki_dir)
     write_source_map(paths.wiki_dir, source_mapping)
-    return touched
+    return sorted(set(touched))
 
 
 def main() -> int:
@@ -150,10 +177,11 @@ def main() -> int:
         if errors:
             print(json.dumps({"ok": False, "errors": errors}, indent=2))
             return 1
-        ensure_wiki_structure(paths.wiki_dir)
+        taxonomy = resolve_taxonomy(paths)
+        ensure_wiki_structure(paths.wiki_dir, taxonomy)
         all_touched: list[str] = []
         for raw_input in args.raw_paths:
-            all_touched.extend(ingest_one(paths, raw_input))
+            all_touched.extend(ingest_one(paths, raw_input, taxonomy))
 
         rebuild_index(Path(__file__).resolve().parent)
         raw_snapshot = git_snapshot(paths.raw_dir)

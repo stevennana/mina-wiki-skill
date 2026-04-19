@@ -1,177 +1,65 @@
 # mina-wiki-skill
 
-`mina-wiki-skill` is a Codex-style skill for maintaining a shared markdown wiki from a raw source directory and ongoing LLM session work.
+`mina-wiki-skill` is a Codex-style skill for maintaining a general-purpose markdown wiki from a raw source directory and ongoing LLM session work.
 
-This project is inspired by Andrej Karpathy's [LLM Wiki](https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw/ac46de1ad27f92b28ac95459c782c07f6b8c964a/llm-wiki.md) concept: a persistent, LLM-maintained wiki that sits between raw source material and query-time answers.
+The wiki is the maintained knowledge layer. Raw files are ingestion input. Scripts in this repo help bootstrap, sync, index, lint, and log the wiki, but the LLM still owns the editorial work.
 
-It follows the "LLM Wiki" pattern:
-- raw files are optional input material for ingestion
-- the wiki is the maintained, interlinked knowledge layer
-- the skill gives the LLM a repeatable workflow for ingest, query, sync, and lint
+## Structure
 
-The scripts in this repo are support tools. They can bootstrap drafts, track sync state, and maintain bookkeeping, but the CLI LLM is still expected to do the real wiki work: synthesize information, revise generated pages, strengthen links, and lint low-quality knowledge.
+The maintained wiki always includes:
 
-## Core idea
+- `index.md`: root navigation entrypoint
+- `sources/`: raw source summaries
+- `analyses/`: synthesis and filed answers
+- `legacy/`: archived pages from older structures
+- `.mina-wiki/`: operational metadata including local taxonomy state
 
-The skill works with two external directories:
+Additional maintained sections come from taxonomy config. If no taxonomy is configured, the built-in fallback creates `topics/`, `analyses/`, `sources/`, and `legacy/`.
 
-- `WIKI_RAW_DIR`: raw source files, treated as read-only by the skill
-- `WIKI_DIR`: shared wiki pages, updated by adopted LLM CLI sessions
+The skill does not hardcode one product or domain taxonomy as the default structure.
 
-The wiki is the primary artifact. The LLM should write pages that stand on their own, integrating knowledge from raw material instead of mirroring file paths or dumping raw excerpts. The raw directory is read-only input and optional after ingestion. The skill uses git state to detect whether the wiki is behind the latest raw changes when `WIKI_RAW_DIR` is present.
+## Taxonomy Configuration
 
-If the raw repo has not been initialized or committed yet, the workflow treats that as an initial bootstrap phase:
-- ingest the current raw tree into the wiki first
-- once the wiki is implemented enough to reflect that initial tree, initialize git and create the first commit in `WIKI_RAW_DIR`
-- use that baseline commit plus sync metadata for future change detection
+Taxonomy can be supplied in one of these ways:
 
-When an adopted LLM CLI session starts, it can:
-1. check whether raw has changed
-2. ask the user whether to sync the wiki now
-3. update affected wiki pages if the user accepts
+1. inline in `.mina-wiki.json` under `taxonomy`
+2. by path using `WIKI_TAXONOMY_CONFIG` or config field `taxonomy_config`
+3. as wiki-local metadata in `WIKI_DIR/.mina-wiki/taxonomy.json`
+4. omitted entirely, in which case the fallback structure is used
 
-This keeps the wiki current while still leaving the user in control of when updates happen.
-
-## Repository layout
-
-- `SKILL.md`: the actual skill instructions loaded by Codex
-- `agents/openai.yaml`: UI metadata for the skill
-- `references/`: supporting documentation for config and operations
-- `references/slash-commands.md`: portable slash-command prompt contracts
-- `scripts/`: deterministic helper scripts
-- `tests/`: unit tests for helper behavior
-
-The intended operating model is:
-- scripts help the LLM start faster
-- the LLM reads the generated output critically
-- the LLM rewrites or restructures weak pages
-- the wiki quality comes from iterative maintenance, not from one-shot generation
-
-## Install
-
-### Codex CLI
-
-Install this repository as a local Codex skill by copying or linking it into your Codex skills directory as `mina-wiki-skill`.
-
-Typical local install:
-
-```bash
-mkdir -p ~/.codex/skills
-ln -s /absolute/path/to/mina-wiki-skill ~/.codex/skills/mina-wiki-skill
-```
-
-If you prefer a plain copy instead of a symlink:
-
-```bash
-mkdir -p ~/.codex/skills
-cp -R /absolute/path/to/mina-wiki-skill ~/.codex/skills/mina-wiki-skill
-```
-
-After installation, restart Codex so it reloads available skills.
-
-You can then invoke it explicitly in Codex with prompts such as:
-
-```text
-Use $mina-wiki-skill to check whether my wiki is behind raw and guide me through sync.
-```
-
-If the adopting project keeps its own `AGENTS.md`, inject a `Codex Wiki Commands` section that points at the generated files under `generated/slash-commands/codex/`.
-
-### Claude Code
-
-Claude Code does not use this exact Codex skill packaging format directly, so the practical installation path is:
-
-1. clone or keep this repository locally
-2. point Claude Code sessions at the same `WIKI_RAW_DIR` and `WIKI_DIR`
-3. copy the workflow rules from `SKILL.md` into your project-level `CLAUDE.md`
-4. optionally generate the slash-command prompt files with `python3 scripts/generate_slash_commands.py`
-
-Recommended Claude project setup:
-
-```text
-- keep this repo available locally as the source of truth
-- mirror the operational rules into CLAUDE.md
-- reuse generated files from generated/slash-commands/claude/
-```
-
-This keeps Codex and Claude aligned on the same wiki workflow even though their packaging conventions differ.
-
-## Configuration
-
-The skill resolves directories in this order:
-
-1. `WIKI_RAW_DIR` and `WIKI_DIR`
-2. `MINA_WIKI_CONFIG`
-3. `.mina-wiki.json` in the current project or a parent directory
-
-Example config file:
+Example inline taxonomy:
 
 ```json
 {
   "raw_dir": "/absolute/path/to/raw",
-  "wiki_dir": "/absolute/path/to/wiki"
+  "wiki_dir": "/absolute/path/to/wiki",
+  "taxonomy": {
+    "root_sections": ["sections", "analyses", "sources", "legacy"],
+    "section_descriptions": {
+      "sections": "Maintained topical knowledge.",
+      "sections/example-subsection": "Example subsection for project-specific material."
+    },
+    "children": {
+      "sections": ["example-subsection", "reference"]
+    },
+    "default_destination": "sections",
+    "routing_rules": [
+      {
+        "pattern": "example keyword",
+        "destination": "sections/example-subsection",
+        "match": "any"
+      }
+    ]
+  }
 }
 ```
 
-Recommended environment variables:
-
-```bash
-export WIKI_RAW_DIR=/path/to/raw
-export WIKI_DIR=/path/to/wiki
-```
-
-If you want the variables available in every shell session, add them to `~/.zprofile` or `~/.zshrc`:
-
-```bash
-export WIKI_RAW_DIR=/path/to/raw
-export WIKI_DIR=/path/to/wiki
-```
-
-Then reload your shell configuration:
-
-```bash
-source ~/.zprofile
-```
-
-or:
-
-```bash
-source ~/.zshrc
-```
-
-If you prefer project-specific setup, create `.mina-wiki.json` in the project root instead of changing your global shell profile.
-
-When helping a user interactively, the assistant should explicitly offer:
-- to configure `WIKI_RAW_DIR` and `WIKI_DIR` on the user's behalf
-- to use shell-profile setup for all sessions
-- or to use `.mina-wiki.json` for project-local configuration
-
-## Helper commands
+## Core Commands
 
 Validate configuration:
 
 ```bash
 python3 scripts/check_paths.py
-```
-
-Inspect raw git state:
-
-```bash
-python3 scripts/raw_git_status.py
-```
-
-Initialize git tracking for the raw directory after the first useful wiki bootstrap:
-
-```bash
-python3 scripts/raw_git_init.py
-python3 scripts/raw_git_init.py --initial-commit
-```
-
-Initialize git tracking for the wiki directory when you want commit-backed wiki history:
-
-```bash
-python3 scripts/wiki_git_init.py
-python3 scripts/wiki_git_init.py --initial-commit
 ```
 
 Check whether the wiki is behind raw:
@@ -180,9 +68,7 @@ Check whether the wiki is behind raw:
 python3 scripts/wiki_sync_status.py
 ```
 
-If this reports `baseline_commit_recommended: true`, finish the initial wiki sync first, then create the first commit in `WIKI_RAW_DIR` so later syncs can rely on git history instead of only helper metadata.
-
-Create the minimal wiki structure:
+Bootstrap the configured wiki structure:
 
 ```bash
 python3 scripts/bootstrap_wiki.py
@@ -194,120 +80,40 @@ Sync the wiki from the full raw directory:
 python3 scripts/wiki_sync.py --update-sync-marker
 ```
 
-Use this for the initial wiki bootstrap and for later raw update/delete/add passes.
-
-If you need to rebuild the generated wiki pages from scratch while preserving local vault settings such as `.obsidian/`, use:
-
-```bash
-python3 scripts/wiki_sync.py --reset-generated --update-sync-marker
-```
-
-Append a log entry and update the sync marker:
-
-```bash
-python3 scripts/log_operation.py \
-  --operation ingest \
-  --touched sources/example.md entities/topic.md \
-  --update-sync-marker
-```
-
-Commit a coherent wiki batch after an editorial pass:
-
-```bash
-python3 scripts/wiki_commit_batch.py --message "Rewrite cloud and event mesh knowledge pages"
-```
-
-Generate reusable slash-command prompt files for Codex CLI and Claude Code:
-
-```bash
-python3 scripts/generate_slash_commands.py
-```
-
-This also generates `generated/slash-commands/codex-commands-snippet.md`, which is intended to be copied into a project's `AGENTS.md`.
-
-Ingest a raw file into the wiki:
-
-```bash
-python3 scripts/wiki_ingest.py tickets/commands.md --update-sync-marker
-```
-
-Rebuild the wiki index:
+Rebuild root and section indexes:
 
 ```bash
 python3 scripts/wiki_index.py
 ```
 
-Run a wiki-grounded query and save the result:
+Migrate an old flat wiki:
 
 ```bash
-python3 scripts/wiki_query.py "What does this wiki say about event mesh?" --save-to event-mesh-answer
+python3 scripts/migrate_to_hierarchical.py
 ```
 
-Lint the wiki for stale or weak structure:
+Run editorial quality checks:
 
 ```bash
-python3 scripts/wiki_lint.py
 python3 scripts/wiki_quality_audit.py
+python3 scripts/wiki_lint.py
 ```
 
-Check session-start sync state:
+Append a log entry:
 
 ```bash
-python3 scripts/wiki_session_start.py
+python3 scripts/log_operation.py \
+  --operation ingest \
+  --touched sources/example-source.md topics/example-topic.md \
+  --update-sync-marker
 ```
 
-Run tests:
+## Testing
+
+Run:
 
 ```bash
 make test
 ```
 
-## Expected wiki structure
-
-Inside `WIKI_DIR`, the skill expects or can create:
-
-- `index.md`: content catalog
-- `log.md`: append-only operation history
-- `sources/`: source summaries
-- `entities/`: entity pages
-- `concepts/`: concept pages
-- `analyses/`: filed query results and synthesis
-- `.mina-wiki/last_sync.json`: sync metadata
-
-## Typical workflow
-
-1. Put source files into `WIKI_RAW_DIR`.
-2. Start an adopted LLM CLI session with access to both directories.
-3. Run or trigger `scripts/wiki_sync_status.py`.
-4. If raw has changed, approve the wiki update.
-5. Let the skill update wiki pages, `index.md`, `log.md`, and the sync marker.
-6. Ask questions against the wiki and file durable answers back into it.
-
-## Prompt-based slash commands
-
-This repo also defines a portable slash-command layer for chat-based CLI tools such as Codex CLI and Claude Code. These are prompt contracts, not shell aliases. They give the LLM a stable interface for common wiki actions.
-
-Included command families:
-
-- `/wiki-status`: inspect raw/wiki freshness
-- `/wiki-sync`: ask for approval, then sync wiki from raw
-- `/wiki-add-source`: ingest a specific raw file into the wiki
-- `/wiki-update-page`: revise an existing wiki page
-- `/wiki-delete-page`: delete or archive a wiki page and clean references
-- `/wiki-query`: answer from wiki pages and optionally file the result
-- `/wiki-lint`: health-check the wiki for stale content and missing links
-- `/wiki-log`: append a structured operation entry
-
-See [references/slash-commands.md](references/slash-commands.md) for the expected arguments, behavior, and example invocations for both Codex CLI and Claude Code.
-
-To generate ready-to-copy command prompt files, run `python3 scripts/generate_slash_commands.py`. By default it writes:
-
-- `generated/slash-commands/codex/*.md`
-- `generated/slash-commands/claude/*.md`
-- `generated/slash-commands/manifest.json`
-
-## Notes
-
-- The skill never modifies raw files.
-- Multiple adopted projects can share the same wiki.
-- Session-derived knowledge can also be written back into the wiki, not only raw-ingested knowledge.
+The tests cover config resolution, sync-state detection, fallback taxonomy behavior, custom taxonomy behavior, index rebuilds, ingest behavior, query save flow, migration flow, and sync cleanup behavior.

@@ -11,6 +11,9 @@ from wiki_common import (
     compute_sync_status,
     extract_summary,
     extract_wiki_links,
+    is_index_ref,
+    is_legacy_ref,
+    is_source_ref,
     iter_wiki_pages,
     read_wiki_page,
     resolve_paths,
@@ -40,16 +43,23 @@ def main() -> int:
                 missing_frontmatter.append(ref)
             if not extract_summary(body):
                 missing_summary.append(ref)
-            links = extract_wiki_links(body)
-            for link in links:
+            for link in extract_wiki_links(body):
                 if link in inbound:
                     inbound[link] += 1
             lower_body = body.lower()
             if "contradict" in lower_body or "however" in lower_body or "but " in lower_body:
                 contradiction_candidates.append(ref)
 
-        orphan_pages = sorted(ref for ref, count in inbound.items() if count == 0 and not ref.startswith("sources/"))
-        missing_backlinks = sorted(ref for ref, count in inbound.items() if count == 0 and ref.startswith("concepts/"))
+        orphan_pages = sorted(
+            ref
+            for ref, count in inbound.items()
+            if count == 0 and not is_source_ref(ref) and not is_index_ref(ref) and not is_legacy_ref(ref)
+        )
+        underlinked_leaf_pages = sorted(
+            ref
+            for ref, count in inbound.items()
+            if count == 0 and not is_source_ref(ref) and not is_index_ref(ref) and not ref.startswith("analyses/")
+        )
         sync_status = compute_sync_status(paths)
         stale_pages = []
         if sync_status["needs_sync"]:
@@ -61,7 +71,7 @@ def main() -> int:
         payload = {
             "ok": True,
             "orphan_pages": orphan_pages,
-            "missing_backlinks": missing_backlinks,
+            "underlinked_leaf_pages": underlinked_leaf_pages,
             "missing_summary": sorted(missing_summary),
             "missing_frontmatter": sorted(missing_frontmatter),
             "contradiction_candidates": sorted(set(contradiction_candidates)),
